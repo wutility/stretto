@@ -1,0 +1,39 @@
+{
+  "name": "stretto",
+  "version": "1.0.0",
+  "description": "Stretto is a high-performance TypeScript library for streaming HTTP requests with support for Server-Sent Events.",
+  "private": false,
+  "type": "module",
+  "main": "./dist/index.cjs.js",
+  "module": "./dist/index.js",
+  "browser": "./dist/index.umd.js",
+  "types": "./dist/types/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "vite build",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "terser": "^5.43.1",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.0",
+    "vite-plugin-dts": "^4.5.4"
+  },
+  "keywords": [
+    "fetch api",
+    "streaming",
+    "sse"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wutility/stretto.git"
+  },
+  "bugs": {
+    "url": "https://github.com/wutility/stretto.git/issues"
+  },
+  "homepage": "https://github.com/wutility/stretto.git#readme",
+  "license": "MIT"
+}
