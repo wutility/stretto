@@ -1,17 +1,9 @@
 // types.ts
 
-/** A function that parses an ArrayBuffer and returns a typed result or null. */
 export type Parser<T = unknown> = (input: ArrayBuffer) => T | null;
 
-/**
- * A function that determines the delay for the next retry attempt.
- * @param attempt The current attempt number (starting from 1).
- * @param error The error that caused the retry.
- * @returns The delay in milliseconds, or `null` to stop retrying.
- */
 export type RetryStrategy = (attempt: number, error: Error) => number | null;
 
-// A dedicated type for options related to the retry mechanism.
 export type RetryOpts = {
   retries?: number;
   retryDelay?: number;

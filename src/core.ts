@@ -29,13 +29,13 @@ class LineProcessor {
       newBuffer.set(this.buffer.subarray(0, this.position));
       this.buffer = newBuffer;
     }
-    
+
     this.buffer.set(chunk, this.position);
     this.position += chunk.length;
 
     const lines: Uint8Array[] = [];
     let lineStart = 0;
-    
+
     // Search for newline bytes
     for (let i = 0; i < this.position; i++) {
       if (this.buffer[i] === LineProcessor.NEWLINE) {
@@ -51,7 +51,7 @@ class LineProcessor {
       this.buffer.copyWithin(0, lineStart, this.position);
       this.position -= lineStart;
     }
-    
+
     return lines;
   }
 
@@ -66,10 +66,7 @@ class LineProcessor {
 /**
  * Performs a single streaming fetch request and yields parsed data chunks.
  */
-export async function* fetchAndParseStream<T>(
-  url: string | URL,
-  opts: Opts<T> & { parser: Parser<T>; signal: AbortSignal }
-): AsyncGenerator<T, void, undefined> {
+export async function* fetchAndParseStream<T>(url: string | URL, opts: Opts<T> & { parser: Parser<T>; signal: AbortSignal }): AsyncGenerator<T, void, undefined> {
   const {
     parser,
     body,

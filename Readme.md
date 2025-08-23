@@ -25,13 +25,6 @@ Stretto is a high-performance TypeScript library for streaming HTTP requests wit
 
 ### [Demo](https://wutility.github.io/stretto)
 
-## CDN
-
-```html
-<script src="https://unpkg.com/stretto"></script>
-<!-- Access via global object : window.stretto -->
-```
-
 ## Installation
 
 Install Stretto via npm:
@@ -43,7 +36,8 @@ npm install stretto
 Or use it via a CDN (e.g., for browser environments):
 
 ```html
-<script type="module" src="https://unpkg.com/stretto"></script>
+<script src="https://unpkg.com/stretto"></script>
+<!-- Access via global object : window.stretto -->
 ```
 
 ## Usage
