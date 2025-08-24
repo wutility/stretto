@@ -1,17 +1,20 @@
 # Stretto
 
-Stretto is a high-performance TypeScript library for streaming HTTP requests with support for Server-Sent Events (SSE), NDJSON, and custom data formats. It processes streams at the byte level to minimize overhead, supports retry logic with exponential backoff, and provides flexible parsing for various data formats. Stretto is designed for efficient, reliable, and customizable streaming in modern web applications.
+Stretto is a high-performance, resilient streaming HTTP client for fetching and parsing streams in TypeScript environments (browser, Deno, or Node.js with fetch support). It excels at handling Server-Sent Events (SSE), NDJSON, JSON, and plain text streams with built-in retries, timeouts, middleware, and efficient buffering to minimize memory usage.
+
+Designed for low-latency, high-throughput applications, Stretto uses a ring buffer for line processing and supports custom parsers, backoff strategies, and throttling for consumer control.
 
 ## Features
 
-- **Byte-Level Stream Processing**: Processes incoming data at the byte level to avoid unnecessary string conversions, ensuring high performance.
-- **Server-Sent Events (SSE) Support**: Built-in parser for SSE streams, handling `data:` prefixes and `[DONE]` markers.
-- **NDJSON and Text Parsing**: Includes parsers for NDJSON (JSON-per-line) and plain text streams.
-- **Custom Parser Chaining**: Chain multiple parsers to process complex data formats.
-- **Retry Logic**: Configurable retry mechanism with exponential backoff and jitter for robust error handling.
-- **Abort Signal Support**: Integrates with `AbortController` for fine-grained cancellation control.
-- **Interceptors**: Modify `Request` and `Response` objects before processing for advanced customization.
-- **Type-Safe**: Fully typed with TypeScript for a reliable developer experience.
+- **Streaming Support**: Async iterable for real-time chunk processing.
+- **Parsers**: Built-in support for SSE, NDJSON, JSON, and text. Custom parsers via the `Parser` interface.
+- **Resilience**: Automatic retries with customizable backoff (default: exponential with jitter).
+- **Timeouts & Abortion**: Per-attempt timeouts and AbortController integration.
+- **Middleware**: Chainable middleware for request modification (e.g., auth, logging).
+- **Efficient Buffering**: Ring buffer to avoid reallocations during line splitting.
+- **Decompression**: Automatic handling of gzip, deflate, and brotli via `DecompressionStream`.
+- **Throttling**: Optional delay between yielding chunks to the consumer.
+- **Type-Safe**: Generic types for parsed output.
 
 <div align="center" style="width:100%; text-align:center; margin-bottom:20px;">
   <img src="https://badgen.net/bundlephobia/minzip/stretto" alt="stretto" />
@@ -41,208 +44,148 @@ Or use it via a CDN (e.g., for browser environments):
 
 ## Usage
 
-### Basic SSE Streaming
+Stretto returns an async iterable that you can consume with `for await...of`. It handles the stream parsing and yields parsed chunks.
 
-Stream Server-Sent Events from Wikimedia's EventStreams service (e.g., recent Wikipedia edits):
+### Basic Example (SSE Stream)
 
-```typescript
-import { stretto, sseParser } from 'stretto';
+```ts
+import { stretto } from "stretto";
 
-const stream = stretto('https://stream.wikimedia.org/v2/stream/recentchange', {
-  parser: sseParser,
-});
+async function main() {
+  const stream = stretto("https://stream.wikimedia.org/v2/stream/recentchange");
 
-for await (const event of stream) {
-  console.log('Recent Wikipedia change:', event);
+  for await (const event of stream) {
+    console.log(event); // Parsed SSE event (JSON or text fallback)
+  }
 }
 
-// Cancel the stream when done
-stream.cancel();
+main().catch(console.error);
 ```
 
-### NDJSON Streaming
+### With Options (Retries, Custom Parser)
 
-Stream NDJSON data from Wikimedia's EventStreams and parse each line as JSON:
+```ts
+import { stretto, JsonParser } from "stretto";
 
-```typescript
-import { stretto, ndjsonParser } from 'stretto';
-
-const stream = stretto('https://stream.wikimedia.org/v2/stream/recentchange', {
-  parser: ndjsonParser,
-});
-
-for await (const data of stream) {
-  console.log('Parsed Wikipedia event:', data);
-}
-```
-
-### Non-Streaming JSON Response
-
-Handle a standard JSON API response (e.g., a hypothetical Wikimedia API endpoint):
-
-```typescript
-import { stretto, ndjsonParser } from 'stretto';
-
-const api = stretto('https://api.wikimedia.org/core/v1/wikipedia/en/page/Main_Page', {
-  parser: ndjsonParser, // Parses JSON response
-});
-
-for await (const data of api) {
-  console.log('Page data:', data);
-}
-```
-
-### Custom Parser Chaining
-
-Chain parsers to process Wikimedia's EventStreams data, e.g., extracting specific fields:
-
-```typescript
-import { stretto, chainParsers, sseParser } from 'stretto';
-
-// Example: Parse SSE and extract the 'title' field
-const titleParser = chainParsers([
-  sseParser,
-  (input: any) => input?.title || null,
-]);
-
-const stream = stretto('https://stream.wikimedia.org/v2/stream/recentchange', {
-  parser: titleParser,
-});
-
-for await (const title of stream) {
-  if (title) console.log('Article title:', title);
-}
-```
-
-### Retry Configuration
-
-Configure retries for robust streaming from Wikimedia's EventStreams:
-
-```typescript
-import { stretto, sseParser } from 'stretto';
-
-const stream = stretto('https://stream.wikimedia.org/v2/stream/recentchange', {
-  parser: sseParser,
+const stream = stretto<{ id: string }>("https://api.example.com/stream", {
   retries: 5,
-  retryDelay: 1000, // Start with 1-second delay
-  maxRetryDelay: 15000, // Cap at 15 seconds
+  timeout: 10000, // 10 seconds per attempt
+  parser: JsonParser(), // Buffer entire response as single JSON
+  backoffStrategy: (attempt) => 500 * attempt, // Linear backoff
 });
 
-for await (const event of stream) {
-  console.log('Recent Wikipedia change:', event);
+for await (const item of stream) {
+  console.log(item.id);
 }
 ```
 
-### Request and Response Interceptors
+### Canceling the Stream
 
-Add custom headers or log responses for Wikimedia's EventStreams:
+```ts
+const stream = stretto("https://stream.wikimedia.org/v2/stream/recentchange");
+const iterator = stream[Symbol.asyncIterator]();
 
-```typescript
-import { stretto, sseParser } from 'stretto';
+setTimeout(() => stream.cancel(), 5000); // Abort after 5 seconds
 
-const stream = stretto('https://stream.wikimedia.org/v2/stream/recentchange', {
-  parser: sseParser,
-  onRequest: async (req) => {
-    req.headers.set('User-Agent', 'Stretto-Example/1.0');
-    return req;
-  },
-  onResponse: async (res) => {
-    console.log('Response status:', res.status);
-    return res;
-  },
-});
-
-for await (const event of stream) {
-  console.log('Recent Wikipedia change:', event);
+for await (const chunk of iterator) {
+  console.log(chunk);
 }
 ```
 
 ## API
 
-### `stretto(url: string | URL, opts?: Opts<T>): StrettoEvents<T>`
+### `stretto<T>(url: string | URL, opts: Opts<T>): Stretto<T>`
 
-Creates a streaming or non-streaming request with the specified URL and options.
+Creates a streaming request.
 
-- `url`: The URL to fetch data from.
-- `opts`: Configuration options (see `Opts` type below).
-
-Returns a `StrettoEvents<T>` object with:
-- `[Symbol.asyncIterator](): AsyncIterator<T>`: Iterates over parsed stream chunks or a single parsed response for non-streaming APIs.
-- `cancel(): void`: Cancels the request or stream and aborts the operation.
-
-### `Opts<T>`
-
-Configuration options for the `stretto` function:
-
-- `parser?: Parser<T> | Parser<any>[]`: A single parser or array of parsers to process stream or response data.
-- `body?: BodyInit | object`: Request body (JSON objects are automatically stringified).
-- `headers?: Record<string, string>`: Custom headers for the request.
-- `timeout?: number`: Request timeout in milliseconds (default: 30 seconds).
-- `retries?: number`: Number of retry attempts (default: 3).
-- `retryDelay?: number`: Initial retry delay in milliseconds (default: 500ms).
-- `maxRetryDelay?: number`: Maximum retry delay in milliseconds (default: 10 seconds).
-- `signal?: AbortSignal`: External `AbortSignal` to cancel the request.
-- `retryStrategy?: RetryStrategy`: Custom retry logic function.
-- `bufferSize?: number`: Size of the internal line buffer in bytes for streaming (default: 64KB).
-- `onRequest?: (request: Request) => Request | Promise<Request>`: Interceptor to modify the `Request`.
-- `onResponse?: (response: Response) => Response | Promise<Response>`: Interceptor to modify the `Response`.
+- `url`: The endpoint to fetch.
+- `opts`: Configuration object (see Options below).
+- Returns: An object with `[Symbol.asyncIterator]()` for streaming and `cancel()` to abort.
 
 ### Parsers
 
-- `sseParser`: Parses Server-Sent Events (SSE) streams, handling `data:` prefixes and `[DONE]` markers.
-- `ndjsonParser`: Parses NDJSON (JSON-per-line) streams or single JSON responses.
-- `textParser`: Decodes raw text from an `ArrayBuffer`.
+Exportable parser factories:
 
-### Utilities
+- `DefaultParser<T>()`: Handles SSE with JSON fallback, or NDJSON/text for non-SSE lines.
+- `SseParser<T>()`: Strict SSE parser, yields JSON or text for `data:` lines.
+- `NdjsonParser<T>()`: Parses each line as JSON.
+- `JsonParser<T>()`: Buffers entire stream as single JSON object.
+- `TextParser()`: Yields each line as string.
 
-- `chainParsers<T>(parsers: Parser<any>[]): Parser<T>`: Chains multiple parsers to process data sequentially.
-- `withRetries<T>(opts: RetryOpts, factory: (signal: AbortSignal) => AsyncGenerator<T>): AsyncGenerator<T>`: Wraps a stream or request with retry logic.
-- `anySignal(...signals: (AbortSignal | undefined)[]): AbortSignal`: Combines multiple `AbortSignal`s into a single signal.
-- `sleep(ms: number): Promise<void>`: Pauses execution for the specified duration.
+Custom parsers implement the `Parser<T>` interface:
 
-## Types
-
-- `Parser<T>`: A function that parses an `ArrayBuffer` and returns a typed result or `null`.
-- `RetryStrategy`: A function that determines the retry delay based on the attempt number and error.
-- `RetryOpts`: Options for configuring retries.
-- `Opts<T>`: Configuration options for the `stretto` function.
-
-## Error Handling
-
-Stretto automatically retries failed requests based on the configured retry strategy. If the maximum retries are exceeded or the request/stream is aborted, an error is thrown. Use `try/catch` to handle errors:
-
-```typescript
-try {
-  const stream = stretto('https://stream.wikimedia.org/v2/stream/recentchange');
-  for await (const event of stream) {
-    console.log('Recent Wikipedia change:', event);
-  }
-} catch (err) {
-  console.error('Stream failed:', err);
+```ts
+interface Parser<T> {
+  parse(chunk: Uint8Array): T | null;
+  flush(): T | null;
 }
 ```
 
-## Browser Compatibility
+### Options (`Opts<T>`)
 
-Stretto relies on modern web APIs (`fetch`, `ReadableStream`, `DecompressionStream`, `AbortController`) and has **no external dependencies**. It is compatible with:
-- Modern browsers (Chrome, Edge, Firefox, Safari).
-- Node.js 18+ with `fetch` support.
-- Deno and other environments supporting web-standard APIs.
+- `body?: BodyInit | object`: Request body (JSON-stringified if object).
+- `retries?: number`: Max retry attempts (default: 3).
+- `timeout?: number`: Timeout per attempt in ms (default: 30,000).
+- `parser?: Parser<T>`: Custom parser (default: `DefaultParser()`).
+- `bufferSize?: number`: Ring buffer size for line processing (default: 64KB).
+- `middleware?: Middleware[]`: Array of middleware functions.
+- `backoffStrategy?: BackoffStrategy`: Retry delay calculator (default: exponential with jitter).
+- `throttleMs?: number`: Delay between yielding chunks (default: none).
+- Other `RequestInit` options (headers, method, etc.), excluding body/signal.
 
-For older environments, you may need polyfills for `fetch` or `DecompressionStream`.
+### Middleware
+
+Middleware functions modify the request:
+
+```ts
+type Middleware = (req: Request, next: (req: Request) => Promise<Response>) => Promise<Response>;
+```
+
+Example (add auth):
+
+```ts
+const authMiddleware: Middleware = (req, next) => {
+  req.headers.set("Authorization", "Bearer token");
+  return next(req);
+};
+```
+
+### Backoff Strategy
+
+```ts
+type BackoffStrategy = (attempt: number) => number; // ms delay
+```
+
+Use `defaultBackoff` for exponential jitter.
+
+## Examples
+
+### NDJSON Stream
+
+```ts
+import { stretto, NdjsonParser } from "stretto";
+
+const stream = stretto("https://example.com/ndjson", { parser: NdjsonParser<{ name: string }>() });
+
+for await (const { name } of stream) {
+  console.log(name);
+}
+```
+
+### Handling Errors
+
+Errors (e.g., network failures beyond retries) are thrown in the loop. Use try-catch inside `for await`.
+
+### Throttling Consumption
+
+```ts
+const stream = stretto("https://fast-stream.example.com", { throttleMs: 100 }); // Yield every 100ms
+```
 
 ## Contributing
 
-Contributions are welcome! To contribute:
-
-1. Fork the repository.
-2. Create a feature branch (`git checkout -b feature/your-feature`).
-3. Commit your changes (`git commit -m 'Add your feature'`).
-4. Push to the branch (`git push origin feature/your-feature`).
-5. Open a pull request.
-
-Please include tests and update documentation as needed.
+Pull requests welcome! Fork the repo, make changes, and submit a PR.
 
 ## License
 
-Stretto is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+MIT License. See [LICENSE](LICENSE) for details.

@@ -1,56 +1,44 @@
 // index.ts
 
-import { fetchAndParseStream } from "./core";
-import { sseParser } from "./parsers";
-import { Opts, Parser } from "./types";
-import { withRetries, chainParsers, anySignal } from "./utilities";
+import { fetchAndStream } from "./core.ts";
+import { DefaultParser } from "./parsers.ts";
+import { Opts, Parser } from "./types.ts";
 
-export { sseParser, ndjsonParser, textParser } from './parsers';
+export * from "./types.ts";
+export * from "./parsers.ts";
+export { defaultBackoff } from "./core.ts"; // Export the default backoff strategy
 
-export interface StrettoEvents<T> {
-    [Symbol.asyncIterator](): AsyncIterator<T>;
-    cancel(): void;
+export interface Stretto<T> {
+  [Symbol.asyncIterator](): AsyncIterator<T>;
+  cancel(): void;
 }
 
-export function stretto<T>(
-    url: string | URL,
-    init: Opts<T> = {}
-): StrettoEvents<T> {
-    const ctrl = new AbortController();
+/**
+ * Creates a high-performance, resilient streaming request.
+ *
+ * @param url The URL to fetch.
+ * @param init Configuration options for the request.
+ * @returns An async iterable stream of parsed data.
+ */
+export function stretto<T>(url: string | URL, init: Opts<T> = {}): Stretto<T> {
+  const ctrl = new AbortController();
+  const opts = { ...init, parser: (init.parser ?? DefaultParser<T>()) as Parser<T>, signal: ctrl.signal };
+  const iter = fetchAndStream<T>(url, opts);
 
-    const opts = init;
-    const combinedSignal = anySignal(ctrl.signal, opts.signal);
-
-    const parser = (Array.isArray(opts.parser)
-        ? chainParsers<T>(opts.parser)
-        : opts.parser ?? sseParser) as Parser<T>;
-
-    const factory = (signal: AbortSignal) => fetchAndParseStream<T>(url, {
-        ...opts,
-        parser,
-        signal
-    });
-
-    // Pass the truly combined signal to the retry logic.
-    const iter = withRetries<T>({ ...opts, signal: combinedSignal }, factory);
-
-    const api: StrettoEvents<T> = {
-        async *[Symbol.asyncIterator]() {
-            try {
-                for await (const chunk of iter) {
-                    yield chunk;
-                }
-            } finally {
-                // Ensure cleanup happens even if the loop is broken by cancellation.
-                if (!ctrl.signal.aborted) {
-                    ctrl.abort();
-                }
-            }
-        },
-        cancel() {
-            ctrl.abort();
-        },
-    };
-
-    return api;
+  return {
+    async *[Symbol.asyncIterator]() {
+      try {
+        for await (const chunk of iter) {
+          yield chunk;
+        }
+      } finally {
+        if (!ctrl.signal.aborted) {
+          ctrl.abort();
+        }
+      }
+    },
+    cancel() {
+      ctrl.abort();
+    },
+  };
 }

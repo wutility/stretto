@@ -1,153 +1,148 @@
 // core.ts
 
-import { DEFAULT_BUFFER_SIZE } from "./constants";
-import { Parser, Opts } from "./types";
+import { DEFAULT_BUFFER_SIZE, DEFAULT_RETRIES, DEFAULT_TIMEOUT, NEWLINE, CARRIAGE_RETURN } from "./constants.ts";
+import { Opts, Parser, Next, BackoffStrategy } from "./types.ts";
+import { sleep } from "./utilities.ts";
 
 /**
- * Manages a byte buffer to efficiently extract newline-delimited lines
- * from incoming chunks without string conversion.
+ * A high-performance line processor using a ring buffer to avoid memory reallocation.
  */
 class LineProcessor {
   private buffer: Uint8Array;
-  private position = 0;
-  private static NEWLINE = 0x0A; // '\n'
+  private writePos = 0;
+  private readPos = 0;
 
-  constructor(bufferSize: number) {
-    this.buffer = new Uint8Array(bufferSize);
-  }
+  constructor(bufferSize: number) { this.buffer = new Uint8Array(bufferSize); }
 
-  /**
-   * Pushes a new chunk into the buffer and returns any complete lines found.
-   * The buffer is dynamically resized if a very long line exceeds its capacity.
-   */
   push(chunk: Uint8Array): Uint8Array[] {
-    // Grow buffer if needed to prevent errors with very long lines
-    if (this.position + chunk.length > this.buffer.length) {
-      // PERF: Double the buffer size to reduce reallocation frequency.
-      const newSize = Math.max(this.position + chunk.length, this.buffer.length * 2);
+    // Grow buffer if chunk doesn't fit in the remaining space
+    if (this.buffer.length - this.writePos < chunk.length) {
+      const availableData = this.buffer.subarray(this.readPos, this.writePos);
+      const newSize = Math.max(availableData.length + chunk.length, this.buffer.length * 2);
       const newBuffer = new Uint8Array(newSize);
-      newBuffer.set(this.buffer.subarray(0, this.position));
+
+      newBuffer.set(availableData);
       this.buffer = newBuffer;
+      this.writePos = availableData.length;
+      this.readPos = 0;
     }
 
-    this.buffer.set(chunk, this.position);
-    this.position += chunk.length;
+    this.buffer.set(chunk, this.writePos);
+    this.writePos += chunk.length;
 
     const lines: Uint8Array[] = [];
-    let lineStart = 0;
+    let lineStart = this.readPos;
 
-    // Search for newline bytes
-    for (let i = 0; i < this.position; i++) {
-      if (this.buffer[i] === LineProcessor.NEWLINE) {
-        // Exclude carriage return (\r) if present
-        const lineEnd = (i > 0 && this.buffer[i - 1] === 0x0D) ? i - 1 : i;
+    for (let i = this.readPos; i < this.writePos; i++) {
+      if (this.buffer[i] === NEWLINE) {
+        const lineEnd = i > 0 && this.buffer[i - 1] === CARRIAGE_RETURN ? i - 1 : i;
         lines.push(this.buffer.subarray(lineStart, lineEnd));
         lineStart = i + 1;
       }
     }
 
-    // If lines were found, shift the remaining bytes to the beginning of the buffer.
-    if (lineStart > 0) {
-      this.buffer.copyWithin(0, lineStart, this.position);
-      this.position -= lineStart;
+    this.readPos = lineStart;
+
+    // Reset positions if buffer is fully read to maximize available space
+    if (this.readPos === this.writePos) {
+      this.readPos = 0;
+      this.writePos = 0;
     }
 
     return lines;
   }
 
-  /** Returns any data remaining in the buffer, typically called at the end of a stream. */
   flush(): Uint8Array | null {
-    if (this.position === 0) return null;
-    // Return a slice of the buffer containing the remaining data
-    return this.buffer.subarray(0, this.position);
+    if (this.writePos > this.readPos) {
+      const remaining = this.buffer.subarray(this.readPos, this.writePos);
+      this.readPos = 0;
+      this.writePos = 0;
+      return remaining;
+    }
+    return null;
   }
 }
 
-/**
- * Performs a single streaming fetch request and yields parsed data chunks.
- */
-export async function* fetchAndParseStream<T>(url: string | URL, opts: Opts<T> & { parser: Parser<T>; signal: AbortSignal }): AsyncGenerator<T, void, undefined> {
+/** Default exponential backoff with full jitter. */
+export const defaultBackoff: BackoffStrategy = (attempt: number) => {
+  const base = 100 * 2 ** attempt;
+  return Math.random() * base;
+};
+
+export async function* fetchAndStream<T>(url: string | URL, opts: Opts<T> & { parser: Parser<T>; signal: AbortSignal }): AsyncGenerator<T, void, undefined> {
   const {
-    parser,
-    body,
-    headers = {},
-    signal,
-    bufferSize = DEFAULT_BUFFER_SIZE,
-    onRequest,
-    onResponse,
-    ...rest
+    parser, body, headers = {}, signal, bufferSize = DEFAULT_BUFFER_SIZE,
+    retries = DEFAULT_RETRIES, timeout = DEFAULT_TIMEOUT, middleware = [],
+    backoffStrategy = defaultBackoff, throttleMs, ...rest
   } = opts;
 
-  const reqBody = typeof body === 'object' && body.constructor === Object
-    ? JSON.stringify(body)
-    : body as BodyInit;
+  let attempt = 0;
+  while (true) {
+    const attemptCtrl = new AbortController();
+    const onAbort = () => attemptCtrl.abort();
+    signal.addEventListener("abort", onAbort);
+    const timeoutId = setTimeout(() => attemptCtrl.abort(new DOMException("Timeout", "TimeoutError")), timeout);
 
-  // 1. Create Request object
-  let request = new Request(url, {
-    ...rest,
-    signal,
-    headers: {
-      'Accept': '*/*',
-      'Accept-Encoding': 'gzip, deflate, br',
-      ...(typeof reqBody === 'string' && reqBody.startsWith('{')
-        ? { 'Content-Type': 'application/json' }
-        : {}),
-      ...headers,
-    },
-    body: reqBody,
-  });
+    try {
+      const reqBody = typeof body === "object" && body?.constructor === Object ? JSON.stringify(body) : (body as BodyInit);
+      const request = new Request(url, { ...rest, signal: attemptCtrl.signal, headers: { "Accept": "*/*", ...(typeof reqBody === "string" && { "Content-Type": "application/json" }), ...headers }, body: reqBody });
+      const initialFetch: Next = (req) => fetch(req);
+      const chain = middleware.reduceRight<Next>((next, mw) => (req) => mw(req, next), initialFetch);
+      const res = await chain(request);
 
-  // 2. Apply request interceptor
-  if (onRequest) {
-    request = await onRequest(request);
-  }
+      if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+      if (!res.body) return;
 
-  let res = await fetch(request);
-
-  // 3. Apply response interceptor
-  if (onResponse) {
-    res = await onResponse(res);
-  }
-
-  if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
-
-  if (!res.headers.get('content-type')?.includes('text/event-stream')) {
-    const buf = await res.arrayBuffer();
-    const parsed = parser(buf);
-    if (parsed !== null) yield parsed;
-    return;
-  }
-
-  let stream = res.body!;
-  const encHdr = res.headers.get('content-encoding');
-  if (encHdr === 'gzip') stream = stream.pipeThrough(new DecompressionStream('gzip'));
-  else if (encHdr === 'deflate') stream = stream.pipeThrough(new DecompressionStream('deflate'));
-  else if (encHdr === 'br') stream = stream.pipeThrough(new DecompressionStream('br' as any));
-
-  const reader = stream.getReader();
-  const processor = new LineProcessor(bufferSize);
-
-  try {
-    while (true) {
-      if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      // Push chunk into the processor and get back complete lines
-      const lines = processor.push(value);
-      for (const line of lines) {
-        // Create a new ArrayBuffer slice for the parser
-        const parsed = parser(line.buffer.slice(line.byteOffset, line.byteOffset + line.byteLength));
-        if (parsed !== null) yield parsed;
+      let stream = res.body;
+      const encoding = res.headers.get('content-encoding');
+      if (encoding === 'gzip' || encoding === 'deflate' || encoding === 'br') {
+        // deno-lint-ignore no-explicit-any
+        stream = stream.pipeThrough(new DecompressionStream(encoding as any));
       }
+
+
+      const reader = stream.getReader();
+      const processor = new LineProcessor(bufferSize);
+      try {
+        while (true) {
+          if (attemptCtrl.signal.aborted) throw attemptCtrl.signal.reason ?? new DOMException("Aborted", "AbortError");
+          const { done, value } = await reader.read();
+          if (done) break;
+          for (const line of processor.push(value)) {
+            const parsed = parser.parse(line);
+            if (parsed !== null) {
+              // **[NEW] Apply consumer throttling**
+              if (throttleMs && throttleMs > 0) await sleep(throttleMs);
+              yield parsed;
+            }
+          }
+        }
+        const remaining = processor.flush();
+        if (remaining) {
+          const parsed = parser.parse(remaining);
+          if (parsed !== null) {
+            if (throttleMs && throttleMs > 0) await sleep(throttleMs);
+            yield parsed;
+          }
+        }
+        const final = parser.flush();
+        if (final !== null) {
+          if (throttleMs && throttleMs > 0) await sleep(throttleMs);
+          yield final;
+        }
+        return; // Success
+      } finally {
+        reader.releaseLock();
+      }
+    } catch (err) {
+      if (signal.aborted || attempt >= retries) {
+        throw err;
+      }
+      attempt++;
+      await sleep(backoffStrategy(attempt));
+    } finally {
+      clearTimeout(timeoutId);
+      signal.removeEventListener("abort", onAbort);
     }
-    // Handle any final data that didn't end with a newline
-    const remaining = processor.flush();
-    if (remaining) {
-      const parsed = parser(remaining.buffer.slice(remaining.byteOffset, remaining.byteOffset + remaining.byteLength));
-      if (parsed !== null) yield parsed;
-    }
-  } finally {
-    reader.releaseLock();
   }
 }
