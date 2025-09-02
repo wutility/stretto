@@ -2,7 +2,6 @@ import { StrettoOpts } from './types';
 import { DEFAULT_RETRIES, DEFAULT_TIMEOUT } from './constants';
 import { sleep, isJsonObject } from './utilities';
 import { defaultBackoff, defaultRetryCondition } from './strategies';
-import { handleDecompression } from './decompression';
 
 export async function request(url: string | URL, options: StrettoOpts): Promise<Response> {
   const {
@@ -43,7 +42,6 @@ export async function request(url: string | URL, options: StrettoOpts): Promise<
       }
 
       const response = await fetch(url, fetchOpts);
-      if (response.ok) return handleDecompression(response);
       if (attempt < retries && (retryOn(response.clone()))) continue;
 
       return response;

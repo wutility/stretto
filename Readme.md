@@ -32,8 +32,10 @@ Install Stretto via npm:
 npm install stretto
 ```
 
+CDN
+
 ```html
-<script src="https://cdn.jsdelivr.net/npm/stretto@1.0.4/dist/index.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/stretto/dist/index.umd.min.js"></script>
 <!-- window.stretto -->
 ```
 
@@ -47,7 +49,7 @@ Make a simple HTTP request and parse the response as JSON:
 import stretto from 'stretto';
 
 async function fetchData() {
-  const response = await stretto('https://api.example.com/data');
+  const response = await stretto('https://jsonplaceholder.typicode.com/todos/1');
   const data = await response.json();
   console.log(data);
 }
@@ -80,7 +82,7 @@ Configure retries, timeouts, and custom headers:
 import stretto from 'stretto';
 
 async function fetchWithOptions() {
-  const response = await stretto('https://api.example.com/data', {
+  const response = await stretto('https://jsonplaceholder.typicode.com/todos/1', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: { key: 'value' },
@@ -133,7 +135,7 @@ import stretto from 'stretto';
 
 async function cancelableRequest() {
   const controller = new AbortController();
-  const response = stretto('https://api.example.com/data', { signal: controller.signal });
+  const response = stretto('https://jsonplaceholder.typicode.com/todos/1', { signal: controller.signal });
 
   setTimeout(() => controller.abort(), 2000); // Cancel after 2 seconds
   try {
