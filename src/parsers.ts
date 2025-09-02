@@ -1,5 +1,3 @@
-// parsers.ts
-
 import { dec, SSE_DATA_PREFIX, SSE_EVENT_PREFIX, SSE_ID_PREFIX, COLON } from "./constants.ts";
 import { Parser } from "./types.ts";
 import { startsWith, trimLeadingSpace } from "./utilities.ts";
@@ -10,7 +8,7 @@ const safeJson = (text: string) => {
 };
 
 /**
- * Creates a parser that processes a stream as a single JSON object.
+ * a parser that processes a stream as a single JSON object.
  * It buffers all incoming data and parses it as a whole when the stream ends.
  * Ideal for standard REST API endpoints that return a JSON body.
  */
@@ -31,7 +29,7 @@ export function JsonParser<T>(): Parser<T> {
 }
 
 /**
- * Creates a parser that processes a stream as Newline Delimited JSON (NDJSON).
+ * a parser that processes a stream as Newline Delimited JSON (NDJSON).
  * Each non-empty line is parsed as an independent JSON object.
  */
 export function NdjsonParser<T>(): Parser<T> {
@@ -40,12 +38,12 @@ export function NdjsonParser<T>(): Parser<T> {
       if (line.length === 0) return null;
       return safeJson(dec.decode(line));
     },
-    flush: () => null, // Stateless
+    flush: () => null,
   };
 }
 
 /**
- * Creates a parser that processes a stream as plain text, yielding each line.
+ * a parser that processes a stream as plain text, yielding each line.
  */
 export function TextParser(): Parser<string> {
   return {
@@ -57,7 +55,7 @@ export function TextParser(): Parser<string> {
 }
 
 /**
- * Creates a stateful parser that handles Server-Sent Events (SSE) and
+ * a stateful parser that handles Server-Sent Events (SSE) and
  * attempts to parse the `data` payload as JSON, falling back to text.
  */
 export function SseParser<T>(): Parser<T | string> {
@@ -90,7 +88,7 @@ export function SseParser<T>(): Parser<T | string> {
 }
 
 /**
- * Creates the default, multi-purpose parser.
+ * the default, multi-purpose parser.
  * It robustly handles SSE streams and falls back to NDJSON for other lines.
  * If a line is not valid JSON, it's returned as plain text, preventing data loss.
  */

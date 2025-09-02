@@ -1,8 +1,5 @@
-// utilities.ts
-
 import { SPACE } from "./constants.ts";
 
-/** A promise-based sleep function. */
 export const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
 /** Checks if a Uint8Array starts with a given prefix. */

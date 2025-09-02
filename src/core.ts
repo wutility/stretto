@@ -111,7 +111,6 @@ export async function* fetchAndStream<T>(url: string | URL, opts: Opts<T> & { pa
           for (const line of processor.push(value)) {
             const parsed = parser.parse(line);
             if (parsed !== null) {
-              // **[NEW] Apply consumer throttling**
               if (throttleMs && throttleMs > 0) await sleep(throttleMs);
               yield parsed;
             }

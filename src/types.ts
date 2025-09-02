@@ -1,5 +1,3 @@
-// types.ts
-
 /** An interface for a stateful parser that processes byte chunks. */
 export interface Parser<T = unknown> {
   parse(chunk: Uint8Array): T | null;

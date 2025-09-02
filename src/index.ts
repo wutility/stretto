@@ -1,12 +1,10 @@
-// index.ts
-
 import { fetchAndStream } from "./core.ts";
 import { DefaultParser } from "./parsers.ts";
 import { Opts, Parser } from "./types.ts";
 
 export * from "./types.ts";
 export * from "./parsers.ts";
-export { defaultBackoff } from "./core.ts"; // Export the default backoff strategy
+export { defaultBackoff } from "./core.ts";
 
 export interface Stretto<T> {
   [Symbol.asyncIterator](): AsyncIterator<T>;
@@ -14,7 +12,7 @@ export interface Stretto<T> {
 }
 
 /**
- * Creates a high-performance, resilient streaming request.
+ * a high-performance, resilient streaming request.
  *
  * @param url The URL to fetch.
  * @param init Configuration options for the request.

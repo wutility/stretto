@@ -1,6 +1,6 @@
 // test-stretto.ts
 
-import { stretto, JsonParser, NdjsonParser, SseParser } from '../dist/stretto';
+import { stretto, JsonParser, NdjsonParser, SseParser } from '../src/index.ts';
 
 // Utility to log test results
 function logTest(name: string, success: boolean, details?: string) {
@@ -28,7 +28,6 @@ async function testSseStream() {
 // Test 2: Handle single JSON response with JsonParser
 async function testJsonParser() {
   try {
-    // Mock API returning JSON (using a public JSON endpoint)
     const stream = stretto('https://httpbin.org/json', { parser: JsonParser() });
     const results: any[] = [];
 
@@ -45,7 +44,6 @@ async function testJsonParser() {
 // Test 3: Parse NDJSON stream
 async function testNdjsonParser() {
   try {
-    // Mock NDJSON response (using httpbin with a custom endpoint if available, or simulate)
     const stream = stretto('https://httpbin.org/stream/3', { parser: NdjsonParser() });
     const results: any[] = [];
 
@@ -79,7 +77,6 @@ async function testCancel() {
 // Test 5: Test retries on failure
 async function testRetries() {
   try {
-    // Use a non-existent endpoint to trigger failure
     const stream = stretto('https://httpbin.org/status/500', { retries: 2 });
     let count = 0;
 
@@ -93,6 +90,44 @@ async function testRetries() {
   }
 }
 
+async function testThrottleSse() {
+  try {
+    const stream = stretto('https://sse.dev/test?interval=0.5', { throttleMs: 500 });
+    const start = Date.now();
+    let count = 0;
+
+    for await (const chunk of stream) {
+      logTest('Throttled SSE.dev event:', chunk);
+      count++;
+      if (count >= 2) break; // Limit to 2 events
+    }
+
+    const duration = Date.now() - start;
+    logTest('Throttle SSE', duration >= 500, `Received ${count} events in ${duration}ms`);
+  } catch (err) {
+    logTest('Throttle SSE', false, err.message);
+  }
+}
+
+async function testCancelSse() {
+  try {
+    const stream = stretto('https://stream.wikimedia.org/v2/stream/recentchange', {
+      throttleMs: 0
+    });
+
+    const iterator = stream[Symbol.asyncIterator]();
+
+    setTimeout(() => stream.cancel(), 1000);
+
+    await iterator.next(); // Try to get one event
+    const result = await iterator.next(); // Should be aborted
+
+    logTest('Cancel SSE', result.done, 'Stream aborted correctly');
+  } catch (err) {
+    logTest('Cancel SSE', err.name === 'AbortError', err.message);
+  }
+}
+
 // Run all tests
 async function runTests() {
   console.log('Running Stretto Tests...\n');
@@ -101,6 +136,8 @@ async function runTests() {
   await testNdjsonParser();
   await testCancel();
   await testRetries();
+  await testThrottleSse();
+  await testCancelSse();
   console.log('\nTests Complete');
 }
 
