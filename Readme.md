@@ -32,6 +32,11 @@ Install Stretto via npm:
 npm install stretto
 ```
 
+```html
+<script src="https://cdn.jsdelivr.net/npm/stretto@1.0.4/dist/index.umd.min.js"></script>
+<!-- window.stretto -->
+```
+
 ## Usage
 
 ### Basic Non-Streaming Request
