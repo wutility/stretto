@@ -30,7 +30,6 @@
   <h1>Streaming Pokémon Data (NDJSON)</h1>
   <pre></pre>
 
-
   <script src="index.umd.js"></script>
 
   <script>
@@ -43,13 +42,7 @@
     document.getElementById('btn-stream').addEventListener('click', async () => {
       outputEl.innerHTML = '';
 
-      streamResponse = await stretto("https://stream.wikimedia.org/v2/stream/recentchange", {
-        stream: true,
-        method: "GET",
-        signal
-      });
-
-      console.log(streamResponse);
+      streamResponse = await stretto("https://stream.wikimedia.org/v2/stream/recentchange", { stream: true, method: "GET", signal });
 
       for await (const item of streamResponse) {
         console.log(item);
