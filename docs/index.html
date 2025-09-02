@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Stretto.js Browser Example</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      background: #f0f0f0;
+    }
+
+    #output {
+      list-style: none;
+      padding: 0;
+    }
+
+    #output li {
+      background: white;
+      padding: 10px;
+      margin-bottom: 5px;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+
+<body>
+  <button id="btn-stream">stream</button>
+  <button id="btn-cancel">cancel</button>
+  <h1>Streaming Pokémon Data (NDJSON)</h1>
+  <pre></pre>
+
+
+  <script src="index.umd.js"></script>
+
+  <script>
+    const controller = new AbortController();
+    const signal = controller.signal;
+
+    let streamResponse;
+    const outputEl = document.querySelector('pre');
+
+    document.getElementById('btn-stream').addEventListener('click', async () => {
+      outputEl.innerHTML = '';
+
+      streamResponse = await stretto("https://stream.wikimedia.org/v2/stream/recentchange", {
+        stream: true,
+        method: "GET",
+        signal
+      });
+
+      console.log(streamResponse);
+
+      for await (const item of streamResponse) {
+        console.log(item);
+        outputEl.innerHTML += JSON.stringify(item, '\n', 2) + '\n';
+      }
+    });
+
+    document.getElementById('btn-cancel').addEventListener('click', () => {
+      controller.abort();
+    })
+  </script>
+</body>
+
+</html>

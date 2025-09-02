@@ -1,27 +1,36 @@
-/** An interface for a stateful parser that processes byte chunks. */
-export interface Parser<T = unknown> {
-  parse(chunk: Uint8Array): T | null;
-  flush(): T | null;
+export interface Parser<T> {
+  parse(chunk: Uint8Array, controller: TransformStreamDefaultController<T | string>): void;
+  flush(controller: TransformStreamDefaultController<T | string>): void;
 }
 
-// --- Middleware Types ---
-export type Next = (request: Request) => Promise<Response>;
-export type Middleware = (request: Request, next: Next) => Promise<Response>;
-
-/** A function that calculates the backoff delay for retries. */
 export type BackoffStrategy = (attempt: number) => number;
 
-/** Configuration options for a Stretto stream request. */
-export type Opts<T = unknown> = Omit<RequestInit, 'body' | 'signal'> & {
-  body?: BodyInit | object;
+export type RetryStrategy = (response: Response) => boolean;
+
+export type StrettoStreamableResponse<T> = StrettoResponse & AsyncIterable<T | string>;
+
+export interface StrettoOpts extends Omit<RequestInit, 'body' | 'signal' | 'method' | 'headers'> {
+  body?: BodyInit | Record<string, unknown>;
+  headers?: HeadersInit;
+  method?: string;
   retries?: number;
   timeout?: number;
-  parser?: Parser<T>;
-  bufferSize?: number;
-  middleware?: Middleware[];
-
-  /** A function to calculate retry delay in ms. Defaults to exponential backoff with jitter. */
+  signal?: AbortSignal;
   backoffStrategy?: BackoffStrategy;
-  /** Milliseconds to wait between yielding each chunk to the consumer. */
-  throttleMs?: number;
-};
+  retryOn?: RetryStrategy;
+  stream?: boolean;
+}
+
+export interface StrettoResponse {
+  headers: Headers;
+  ok: boolean;
+  status: number;
+  statusText: string;
+  url: string;
+  json: <T = unknown>() => Promise<T>;
+  text: () => Promise<string>;
+  blob: () => Promise<Blob>;
+  arrayBuffer: () => Promise<ArrayBuffer>;
+  formData: () => Promise<FormData>;
+  body: ReadableStream<Uint8Array> | null;
+}

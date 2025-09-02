@@ -1,6 +1,6 @@
 {
   "name": "stretto",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Stretto is a high-performance TypeScript library for streaming HTTP requests with support for Server-Sent Events.",
   "private": false,
   "type": "module",
@@ -12,8 +12,9 @@
     "dist"
   ],
   "scripts": {
-    "build": "vite build",
-    "dev": "vite",
+    "cp": "cp dist/index.umd.js docs/",
+    "build": "vite build && npm run cp",
+    "dev": "vite build --minify false && npm run cp",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run clean && npm run build",

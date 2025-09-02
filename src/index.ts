@@ -1,41 +1,68 @@
-import { fetchAndStream } from "./core.ts";
-import { DefaultParser } from "./parsers.ts";
-import { Opts, Parser } from "./types.ts";
+import { StrettoOpts, StrettoStreamableResponse } from './types';
+import { request } from './request';
+import { StreamingParser } from './parsers';
+import { CancellationTransformer, LineTransformer, ParserTransformer } from './transformers';
 
-export * from "./types.ts";
-export * from "./parsers.ts";
+export default async function stretto<T = unknown>(url: string | URL, options: StrettoOpts = {}): Promise<StrettoStreamableResponse<T>> {
+  const { stream = false, ...opts } = options;
+  const response = await request(url, opts);
+  let bodyConsumed = false;
 
-export interface Stretto<T> {
-  [Symbol.asyncIterator](): AsyncIterator<T>;
-  cancel(): void;
-}
+  const consumeBody = (): Response => {
+    if (bodyConsumed) {
+      throw new Error('Response body has already been consumed.');
+    }
+    bodyConsumed = true;
+    return response;
+  };
 
-/**
- * a high-performance, resilient streaming request.
- *
- * @param url The URL to fetch.
- * @param init Configuration options for the request.
- * @returns An async iterable stream of parsed data.
- */
-export function stretto<T>(url: string | URL, init: Opts<T> = {}): Stretto<T> {
-  const ctrl = new AbortController();
-  const opts = { ...init, parser: (init.parser ?? DefaultParser<T>()) as Parser<T>, signal: ctrl.signal };
-  const iter = fetchAndStream<T>(url, opts);
+  const streamableResponse: StrettoStreamableResponse<T> = {
+    // --- Standard Response Properties ---
+    headers: response.headers,
+    ok: response.ok,
+    status: response.status,
+    statusText: response.statusText,
+    url: response.url,
 
-  return {
+    // --- Standard Body-Consuming Methods ---
+    get body() {
+      return consumeBody().body;
+    },
+    json: <U = unknown>() => consumeBody().json() as Promise<U>,
+    text: () => consumeBody().text(),
+    blob: () => consumeBody().blob(),
+    arrayBuffer: () => consumeBody().arrayBuffer(),
+    formData: () => consumeBody().formData(),
+
+    // --- Async Iterable Implementation ---
     async *[Symbol.asyncIterator]() {
+      if (!stream) {
+        throw new Error(
+          'Cannot iterate on this response. To enable streaming iteration, set the `stream: true` option in your stretto call.'
+        );
+      }
+
+      const body = consumeBody().body;
+      if (!body) return;
+
+      const transformedStream = body
+        .pipeThrough(new CancellationTransformer(opts.signal))
+        .pipeThrough(new LineTransformer())
+        .pipeThrough(new ParserTransformer(new StreamingParser<T>()));
+
+      const reader = transformedStream.getReader();
+
       try {
-        for await (const chunk of iter) {
-          yield chunk;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          yield value;
         }
       } finally {
-        if (!ctrl.signal.aborted) {
-          ctrl.abort();
-        }
+        reader.releaseLock();
       }
     },
-    cancel() {
-      ctrl.abort();
-    },
   };
+
+  return streamableResponse;
 }
