@@ -1,17 +1,11 @@
-// transformers.ts
-
 import { BUFFER_SIZE, MAX_LINE_LENGTH, CR, LF } from './constants';
-import { Parser } from './types'; // Assuming types.ts is where Parser interface lives
+import { Parser } from './types';
 
-/**
- * A TransformStream that splits an incoming byte stream into lines.
- * It correctly handles CR, LF, and CRLF line endings.
- */
+/** A TransformStream that splits an incoming byte stream into lines. */
 export class LineTransformer extends TransformStream<Uint8Array, Uint8Array> {
   constructor() {
     let buffer = new Uint8Array(BUFFER_SIZE);
     let position = 0;
-    // Optimization: Keep track of the last scanned position to avoid re-scanning the whole buffer.
     let scanPosition = 0;
 
     super({
@@ -53,15 +47,11 @@ export class LineTransformer extends TransformStream<Uint8Array, Uint8Array> {
   }
 }
 
-/**
- * A TransformStream that applies a parser to each chunk of data.
- * This has been refactored to support parsers that can yield multiple results from a single input line.
- */
+/** A TransformStream that applies a parser to each chunk of data. */
 export class ParserTransformer<T> extends TransformStream<Uint8Array, T> {
   constructor(parser: Parser<T>) {
     super({
       transform: (line, controller) => {
-        // Bug Fix: The parser can now enqueue multiple results itself, preventing data loss.
         parser.parse(line, controller);
       },
       flush: (controller) => {
@@ -71,10 +61,7 @@ export class ParserTransformer<T> extends TransformStream<Uint8Array, T> {
   }
 }
 
-/**
- * A TransformStream that terminates the stream if an AbortSignal is received.
- * This implementation is already clean and efficient. No changes needed.
- */
+/** A TransformStream that terminates the stream if an AbortSignal is received. */
 export class CancellationTransformer<T> extends TransformStream<T, T> {
   constructor(signal?: AbortSignal) {
     super({
