@@ -9,9 +9,7 @@ export default async function stretto<T = unknown>(url: string | URL, options: S
   let bodyConsumed = false;
 
   const consumeBody = (): Response => {
-    if (bodyConsumed) {
-      throw new Error('Response body has already been consumed.');
-    }
+    if (bodyConsumed) throw new Error('Response body has already been consumed.');
     bodyConsumed = true;
     return response;
   };
