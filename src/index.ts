@@ -4,7 +4,6 @@ import { Opts, Parser } from "./types.ts";
 
 export * from "./types.ts";
 export * from "./parsers.ts";
-export { defaultBackoff } from "./core.ts";
 
 export interface Stretto<T> {
   [Symbol.asyncIterator](): AsyncIterator<T>;
