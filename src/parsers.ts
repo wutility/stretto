@@ -1,4 +1,4 @@
-import { decoder, SSE_DATA_PREFIX, SSE_EVENT_PREFIX, SSE_ID_PREFIX, COLON, } from './constants';
+import { decoder, SSE_DATA_PREFIX, SSE_EVENT_PREFIX, SSE_ID_PREFIX, COLON, SPACE } from './constants';
 import { Parser } from './types';
 
 export const safeJsonParse = <T = unknown>(text: string): T | null => {
@@ -17,19 +17,22 @@ export const bytesStartWith = (haystack: Uint8Array, needle: Uint8Array): boolea
   return true;
 };
 
-export const trimLeadingSpace = (bytes: Uint8Array): Uint8Array => bytes[0] === 0x20 ? bytes.subarray(1) : bytes;
-
 export class StreamingParser<T = unknown> implements Parser<T | string> {
   private sseBuffer: string[] = [];
 
   parse(line: Uint8Array, controller: TransformStreamDefaultController<T | string>): void {
-    if (line.length === 0) {
+    // An empty line signifies the end of an SSE message.
+    if (!line || line.length === 0) {
       this.flushSseBuffer(controller);
       return;
     }
 
     if (bytesStartWith(line, SSE_DATA_PREFIX)) {
-      const data = decoder.decode(trimLeadingSpace(line.subarray(SSE_DATA_PREFIX.length)));
+      let dataIndex = SSE_DATA_PREFIX.length;
+      if (line.length > dataIndex && line[dataIndex] === SPACE) {
+        dataIndex++;
+      }
+      const data = decoder.decode(line.subarray(dataIndex));
       this.sseBuffer.push(data);
       return;
     }
@@ -42,7 +45,10 @@ export class StreamingParser<T = unknown> implements Parser<T | string> {
       return;
     }
 
+    // Flush any pending SSE data first.
     this.flushSseBuffer(controller);
+
+    // Process the line as NDJSON or plain text.
     const text = decoder.decode(line);
     const parsedLine = safeJsonParse<T>(text) ?? text;
     controller.enqueue(parsedLine);
@@ -54,7 +60,6 @@ export class StreamingParser<T = unknown> implements Parser<T | string> {
 
   private flushSseBuffer(controller: TransformStreamDefaultController<T | string>): void {
     if (this.sseBuffer.length === 0) return;
-
     const data = this.sseBuffer.join('\n');
     this.sseBuffer.length = 0;
     const result = safeJsonParse<T>(data) ?? data;

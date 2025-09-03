@@ -1,10 +1,10 @@
 import { StrettoOpts, StrettoStreamableResponse } from './types';
 import { request } from './request';
 import { StreamingParser } from './parsers';
-import { CancellationTransformer, LineTransformer, ParserTransformer } from './transformers';
+import { LineTransformer, ParserTransformer } from './transformers';
 
-export default async function stretto<T = unknown>(url: string | URL, options: StrettoOpts = {}): Promise<StrettoStreamableResponse<T>> {
-  const { stream = false, ...opts } = options;
+export default async function stretto<T = unknown>(url: string | URL, options: StrettoOpts<T> = {}): Promise<StrettoStreamableResponse<T>> {
+  const { stream = false, parser = new StreamingParser<T>(), ...opts } = options;
   const response = await request(url, opts);
   let bodyConsumed = false;
 
@@ -15,14 +15,11 @@ export default async function stretto<T = unknown>(url: string | URL, options: S
   };
 
   const streamableResponse: StrettoStreamableResponse<T> = {
-    // --- Standard Response Properties ---
     headers: response.headers,
     ok: response.ok,
     status: response.status,
     statusText: response.statusText,
     url: response.url,
-
-    // --- Standard Body-Consuming Methods ---
     get body() {
       return consumeBody().body;
     },
@@ -32,31 +29,39 @@ export default async function stretto<T = unknown>(url: string | URL, options: S
     arrayBuffer: () => consumeBody().arrayBuffer(),
     formData: () => consumeBody().formData(),
 
-    // --- Async Iterable Implementation ---
-    async *[Symbol.asyncIterator]() {
+    async *[Symbol.asyncIterator](): AsyncGenerator<string | T, void, undefined> {
       if (!stream) {
         throw new Error(
-          'Cannot iterate on this response. To enable streaming iteration, set the `stream: true` option in your stretto call.'
+          'Cannot iterate on this response. To enable streaming iteration, set `stream: true` in your stretto call.'
         );
       }
 
       const body = consumeBody().body;
       if (!body) return;
 
+      if (opts.signal?.aborted) {
+        throw new DOMException('Operation aborted', 'AbortError');
+      }
+
       const transformedStream = body
-        .pipeThrough(new CancellationTransformer(opts.signal))
         .pipeThrough(new LineTransformer())
-        .pipeThrough(new ParserTransformer(new StreamingParser<T>()));
+        .pipeThrough(new ParserTransformer(parser));
 
       const reader = transformedStream.getReader();
+
+      const abortHandler = () => {
+        reader.cancel(new DOMException('Operation aborted', 'AbortError')).catch(() => {});
+      };
+      opts.signal?.addEventListener('abort', abortHandler);
 
       try {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          yield value;
+          yield value as string | T;
         }
       } finally {
+        opts.signal?.removeEventListener('abort', abortHandler);
         reader.releaseLock();
       }
     },

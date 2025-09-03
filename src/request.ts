@@ -21,10 +21,11 @@ export async function request(url: string | URL, options: StrettoOpts): Promise<
     const controller = new AbortController();
     const internalSignal = controller.signal;
 
-    const onAbort = () => controller.abort(signal?.reason);
-    signal?.addEventListener('abort', onAbort, { once: true });
+    const onAbort = () => controller.abort(signal?.reason ?? undefined);
+    signal?.addEventListener?.('abort', onAbort);
 
-    const timeoutId = timeout > 0 ? setTimeout(() => controller.abort(new DOMException('Request timed out', 'TimeoutError')), timeout) : 0;
+    const timeoutId = timeout > 0 ?
+      setTimeout(() => controller.abort(new DOMException('Request timed out', 'TimeoutError')), timeout) : undefined;
 
     try {
       if (attempt > 0) await sleep(backoffStrategy(attempt));
@@ -37,22 +38,28 @@ export async function request(url: string | URL, options: StrettoOpts): Promise<
           requestHeaders.set('Content-Type', 'application/json');
         }
         fetchOpts.body = JSON.stringify(body);
-      } else {
+      } else if (body !== undefined) {
         fetchOpts.body = body as BodyInit;
       }
 
       const response = await fetch(url, fetchOpts);
-      if (attempt < retries && (retryOn(response.clone()))) continue;
+
+      if (attempt < retries && retryOn(response.clone())) {
+        await response.body?.cancel?.();
+        continue;
+      }
 
       return response;
-    } catch (error) {
-      lastError = error as Error;
-      if (internalSignal.aborted) throw lastError;
+    } catch (error: any) {
+      lastError = error;
+      // Only throw for abort errors (including timeouts)
+      if (internalSignal.aborted || error?.name === 'AbortError' || error?.name === 'TimeoutError') throw lastError;
+      // Otherwise, will retry
     } finally {
-      clearTimeout(timeoutId);
-      signal?.removeEventListener('abort', onAbort);
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      signal?.removeEventListener?.('abort', onAbort);
     }
   }
 
-  throw lastError ?? new Error('Request failed after all retry attempts.');
+  throw new Error('Request failed after all retry attempts.', { cause: lastError });
 }

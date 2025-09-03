@@ -1,15 +1,9 @@
-// Stretto client defaults
 export const DEFAULT_RETRIES = 3;
 export const DEFAULT_TIMEOUT = 30_000; // 30 seconds
 
-// Streaming performance constants
-export const BUFFER_SIZE = 64 * 1024; // 64KB chunks
-export const MAX_LINE_LENGTH = 1024 * 1024; // 1MB max line length
-
-
 // Common byte values
-export const CR = 0x0d;
-export const LF = 0x0a;
+export const CR = 0x0d; // Carriage Return
+export const LF = 0x0a; // Line Feed
 export const COLON = 0x3a;
 export const SPACE = 0x20;
 

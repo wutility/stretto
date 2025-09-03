@@ -9,7 +9,7 @@ export type RetryStrategy = (response: Response) => boolean;
 
 export type StrettoStreamableResponse<T> = StrettoResponse & AsyncIterable<T | string>;
 
-export interface StrettoOpts extends Omit<RequestInit, 'body' | 'signal' | 'method' | 'headers'> {
+export interface StrettoOpts<T = unknown> extends Omit<RequestInit, 'body' | 'signal' | 'method' | 'headers'> {
   body?: BodyInit | Record<string, unknown>;
   headers?: HeadersInit;
   method?: string;
@@ -19,6 +19,7 @@ export interface StrettoOpts extends Omit<RequestInit, 'body' | 'signal' | 'meth
   backoffStrategy?: BackoffStrategy;
   retryOn?: RetryStrategy;
   stream?: boolean;
+  parser?: Parser<T>;
 }
 
 export interface StrettoResponse {
