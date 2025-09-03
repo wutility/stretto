@@ -1,5 +1,3 @@
-// fileName: transformers.ts
-
 import { CR, LF } from './constants';
 import { Parser } from './types';
 

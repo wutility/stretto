@@ -1,6 +1,6 @@
 {
   "name": "stretto",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Stretto is a high-performance TypeScript library for streaming HTTP requests with support for Server-Sent Events.",
   "private": false,
   "type": "module",

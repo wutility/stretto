@@ -1,16 +1,17 @@
 # Stretto
 
-A lightweight, flexible HTTP client library for making streaming and non-streaming requests in TypeScript/JavaScript environments. Stretto simplifies fetching data from APIs with support for streaming responses, retry mechanisms, and customizable request options.
+A lightweight, flexible HTTP client for streaming and non-streaming requests in TypeScript/JavaScript environments. Stretto makes it easy to fetch data from APIs with support for streaming responses, retries, timeouts, cancellation, and customizable request options.
 
 ## Features
 
-- **Streaming Support**: Iterate over response data as it arrives using async iterables.
-- **Type-Safe Responses**: Strongly typed responses for better developer experience.
-- **Retry Mechanism**: Configurable retries with custom backoff strategies.
-- **Timeout Handling**: Set timeouts to prevent hanging requests.
-- **Cancellation Support**: Use `AbortSignal` to cancel requests.
-- **Flexible Body Parsing**: Supports JSON, text, blob, array buffer, and form data.
-- **Customizable Headers and Methods**: Full control over HTTP headers and methods.
+- **Streaming Support:** Iterate over response data as it arrives using async iterables for SSE, NDJSON, and other line-based protocols.
+- **Type-Safe Responses:** Strong TypeScript types for better DX and safer code.
+- **Retry Mechanism:** Configurable retries with custom backoff strategies and retry conditions.
+- **Timeout Handling:** Prevent hanging requests with built-in timeouts.
+- **Cancellation Support:** Use `AbortSignal` to cancel requests at any time.
+- **Flexible Body Parsing:** Supports JSON, text, blob, array buffer, and form data.
+- **Customizable Headers & Methods:** Full control over HTTP headers and methods.
+- **Low-level Stream Access:** Access and transform raw `ReadableStream` data.
 
 <div align="center" style="width:100%; text-align:center; margin-bottom:20px;">
   <img src="https://badgen.net/bundlephobia/minzip/stretto" alt="stretto" />
@@ -32,11 +33,11 @@ Install Stretto via npm:
 npm install stretto
 ```
 
-CDN
+Or use the CDN:
 
 ```html
 <script src="https://cdn.jsdelivr.net/npm/stretto/dist/index.umd.min.js"></script>
-<!-- window.stretto -->
+<!-- window.stretto is available -->
 ```
 
 ## Usage
@@ -57,21 +58,24 @@ async function fetchData() {
 fetchData();
 ```
 
-### Streaming Response
+### Streaming Server-Sent Events (SSE)
 
-Enable streaming to process data chunks as they arrive:
+Enable streaming to process data chunks as they arrive. This example uses Wikimedia's public SSE endpoint:
 
 ```typescript
 import stretto from 'stretto';
 
-async function streamData() {
+async function streamRecentChanges() {
   const response = await stretto('https://stream.wikimedia.org/v2/stream/recentchange', { stream: true });
-  for await (const chunk of response) {
-    console.log(chunk);
+  let count = 0;
+  for await (const event of response) {
+    console.log(event);
+    count++;
+    if (count >= 5) break; // Only process 5 events for demo
   }
 }
 
-streamData();
+streamRecentChanges();
 ```
 
 ### Advanced Options
@@ -100,14 +104,14 @@ fetchWithOptions();
 
 ## API
 
-### `stretto(url: string | URL, options?: StrettoOpts): Promise<StrettoStreamableResponse<T>>`
+### stretto(url: string | URL, options?: StrettoOpts<T>): Promise<StrettoStreamableResponse<T>>
 
 Fetches data from the specified URL with optional configuration.
 
 #### Parameters
 
 - `url`: The URL to fetch (string or `URL` object).
-- `options`: Configuration options (`StrettoOpts`):
+- `options`: Configuration options (`StrettoOpts<T>`):
   - `body`: Request body (`BodyInit` or object for JSON).
   - `headers`: Custom headers (`HeadersInit`).
   - `method`: HTTP method (e.g., `'GET'`, `'POST'`).
@@ -117,6 +121,7 @@ Fetches data from the specified URL with optional configuration.
   - `backoffStrategy`: Function to calculate delay between retries.
   - `retryOn`: Function to determine if a retry should occur based on the response.
   - `stream`: Enable streaming mode (`true`/`false`, default: `false`).
+  - `parser`: Custom parser for stream events (advanced).
 
 #### Returns
 
@@ -149,12 +154,56 @@ async function cancelableRequest() {
 cancelableRequest();
 ```
 
-## Types
+## Using a Custom Parser
 
-### `StrettoOpts`
+Stretto allows you to provide your own parser to transform each line or event from a stream.  
+A parser is a class or object that implements the following interface:
 
 ```typescript
-interface StrettoOpts {
+interface Parser<T> {
+  parse(chunk: Uint8Array, controller: TransformStreamDefaultController<T | string>): void;
+  flush(controller: TransformStreamDefaultController<T | string>): void;
+}
+```
+
+### Custom Parser: Uppercase Line Parser
+
+Here's a minimal example that turns every streamed line into an uppercase string:
+
+```typescript
+import stretto from 'stretto';
+
+// Custom parser that uppercases each line
+class UppercaseParser implements Parser<string> {
+  parse(chunk, controller) {
+    const text = new TextDecoder().decode(chunk);
+    controller.enqueue(text.toUpperCase());
+  }
+  flush(controller) {}
+}
+
+async function streamUppercase() {
+  const res = await stretto('https://stream.wikimedia.org/v2/stream/recentchange', {
+    stream: true,
+    parser: new UppercaseParser(),
+  });
+
+  let count = 0;
+  for await (const line of res) {
+    console.log(line); // Each line is now uppercase text!
+    if (++count >= 5) break;
+  }
+}
+
+streamUppercase();
+```
+
+## Types
+
+### StrettoOpts<T>
+
+```typescript
+interface StrettoOpts<T = unknown> {
   body?: BodyInit | Record<string, unknown>;
   headers?: HeadersInit;
   method?: string;
@@ -164,16 +213,26 @@ interface StrettoOpts {
   backoffStrategy?: (attempt: number) => number;
   retryOn?: (response: Response) => boolean;
   stream?: boolean;
+  parser?: Parser<T>;
 }
 ```
 
-### `StrettoStreamableResponse<T>`
+### StrettoStreamableResponse<T>
 
 Combines standard `Response` properties with async iterable support for streaming.
 
+## Testing Streaming Endpoints
+
+Here are example endpoints you can use for streaming tests:
+
+- **Wikimedia Recent Changes SSE:**  
+  `https://stream.wikimedia.org/v2/stream/recentchange`
+- **Other Public SSE/NDJSON:**  
+  You can use [demo.ndjson.org](https://demo.ndjson.org/) or other similar endpoints.
+
 ## Contributing
 
-Contributions are welcome! Please submit issues or pull requests to the [GitHub repository](https://github.com/username/stretto).
+Contributions are welcome! Please submit issues or pull requests
 
 1. Fork the repository.
 2. Create a feature branch (`git checkout -b feature/your-feature`).
