@@ -1,6 +1,6 @@
 {
   "name": "stretto",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "exports": {
     ".": "./dist/index.js"
   },

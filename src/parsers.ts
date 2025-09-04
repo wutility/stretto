@@ -8,6 +8,11 @@ interface ParserOptions {
   strict?: boolean;
 }
 
+interface SseParserOptions extends ParserOptions {
+  /** A specific string that signals the end of the stream. @default "[DONE]" */
+  endOfStreamSentinel?: string;
+}
+
 /**
  * A parser for Server-Sent Events (SSE).
  * It correctly buffers multi-line `data:` fields and dispatches an event
@@ -16,9 +21,11 @@ interface ParserOptions {
 export class SseParser<T = unknown> implements Parser<T> {
   private sseBuffer: string[] = [];
   private readonly strict: boolean;
+  private readonly endOfStreamSentinel: string;
 
-  constructor(options: ParserOptions = {}) {
+  constructor(options: SseParserOptions = {}) {
     this.strict = options.strict ?? true;
+    this.endOfStreamSentinel = options.endOfStreamSentinel ?? '[DONE]';
   }
 
   parse(line: Uint8Array, controller: TransformStreamDefaultController<T>): void {
@@ -59,18 +66,23 @@ export class SseParser<T = unknown> implements Parser<T> {
 
   private flushSseBuffer(controller: TransformStreamDefaultController<T>): void {
     if (this.sseBuffer.length === 0) return;
-  
+
     // More efficient for large buffers
     let data: string;
+
     if (this.sseBuffer.length === 1) {
       data = this.sseBuffer[0];
     } else {
       data = this.sseBuffer.join('\n');
     }
-    
+
+    if (data === this.endOfStreamSentinel) {
+      return;
+    }
+
     this.sseBuffer.length = 0;
     const result = safeJsonParse<T>(data);
-  
+
     if (result !== null) {
       controller.enqueue(result);
     } else if (this.strict) {
