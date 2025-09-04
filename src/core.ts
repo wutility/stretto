@@ -6,6 +6,11 @@ import { CancellationTransformer, LineTransformer, ParserTransformer } from './t
 export default async function stretto<T = unknown>(url: string | URL, options: StrettoOpts<T> = {}): Promise<StrettoStreamableResponse<T>> {
   const { stream = false, parser, strictJson = true, ...opts } = options;
   const response = await request(url, opts);
+
+  if (!stream && !response.ok) {
+    throw Object.assign(new Error(`Request failed: ${response.status} ${response.statusText}`), { response: response.clone() });
+  }
+
   let bodyConsumed = false;
 
   const consumeBody = (): Response => {
@@ -33,9 +38,7 @@ export default async function stretto<T = unknown>(url: string | URL, options: S
     formData: () => consumeBody().formData(),
 
     async *[Symbol.asyncIterator]() {
-      if (!stream) {
-        throw new Error("Streaming not enabled. Use { stream: true } in options.");
-      }
+      if (!stream) throw new Error("Streaming not enabled. Use { stream: true } in options.");
 
       const body = consumeBody().body;
       if (!body) return;
