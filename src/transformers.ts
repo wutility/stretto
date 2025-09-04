@@ -2,51 +2,58 @@ import { CR, LF } from './constants';
 import { Parser } from './types';
 
 /**
- * A TransformStream that splits a byte stream into lines.
- * It uses `subarray` for efficient slicing and minimizes allocations
- * by only merging buffers when a line crosses a chunk boundary.
+ * A high-performance TransformStream that splits a byte stream into lines.
+ * It uses a single, reusable buffer to avoid frequent memory allocations,
+ * and `copyWithin` to efficiently manage remaining data.
  */
 export class LineTransformer extends TransformStream<Uint8Array, Uint8Array> {
-  private leftover: Uint8Array = new Uint8Array(0);
+  private buffer = new Uint8Array(8192); // 8KB reusable buffer
+  private bufferLength = 0;
 
   constructor() {
     super({
       transform: (chunk, controller) => {
         if (chunk.length === 0) return;
-        const buffer = this.leftover.length > 0
-          ? this.mergeBuffers(this.leftover, chunk)
-          : chunk;
-
-        let scanPosition = 0;
-        for (let i = 0; i < buffer.length; i++) {
-          if (buffer[i] === LF) {
-            const lineEnd = i > 0 && buffer[i - 1] === CR ? i - 1 : i;
-            controller.enqueue(buffer.subarray(scanPosition, lineEnd));
-            scanPosition = i + 1;
-          }
-        }
-        this.leftover = scanPosition < buffer.length
-          ? buffer.subarray(scanPosition)
-          : new Uint8Array(0);
+        
+        this.ensureCapacity(chunk.length);
+        this.buffer.set(chunk, this.bufferLength);
+        this.bufferLength += chunk.length;
+        
+        this.processLines(controller);
       },
       flush: (controller) => {
-        if (this.leftover.length > 0) {
-          controller.enqueue(this.leftover);
+        if (this.bufferLength > 0) {
+          controller.enqueue(this.buffer.subarray(0, this.bufferLength));
         }
       },
     });
   }
 
-  private MAX_BUFFER_SIZE = 1_000_000; // 1MB safeguard, configurable
-
-  private mergeBuffers(a: Uint8Array, b: Uint8Array): Uint8Array {
-    if (a.length + b.length > this.MAX_BUFFER_SIZE) {
-      throw new Error("LineTransformer buffer exceeded maximum size");
+  private ensureCapacity(additionalBytes: number): void {
+    const requiredSize = this.bufferLength + additionalBytes;
+    if (requiredSize > this.buffer.length) {
+      const newSize = Math.max(requiredSize, this.buffer.length * 2);
+      const newBuffer = new Uint8Array(newSize);
+      newBuffer.set(this.buffer.subarray(0, this.bufferLength));
+      this.buffer = newBuffer;
     }
-    const result = new Uint8Array(a.length + b.length);
-    result.set(a);
-    result.set(b, a.length);
-    return result;
+  }
+
+  private processLines(controller: TransformStreamDefaultController<Uint8Array>): void {
+    let scanPosition = 0;
+    for (let i = 0; i < this.bufferLength; i++) {
+      if (this.buffer[i] === LF) {
+        const lineEnd = i > 0 && this.buffer[i - 1] === CR ? i - 1 : i;
+        controller.enqueue(this.buffer.subarray(scanPosition, lineEnd));
+        scanPosition = i + 1;
+      }
+    }
+    
+    // Shift remaining data to the beginning of the buffer
+    if (scanPosition > 0) {
+      this.buffer.copyWithin(0, scanPosition, this.bufferLength);
+      this.bufferLength -= scanPosition;
+    }
   }
 }
 
@@ -54,29 +61,27 @@ export class LineTransformer extends TransformStream<Uint8Array, Uint8Array> {
 export class ParserTransformer<T> extends TransformStream<Uint8Array, T> {
   constructor(parser: Parser<T>) {
     super({
-      transform: (line, controller) => {
-        parser.parse(line, controller);
-      },
-      flush: (controller) => {
-        parser.flush(controller);
-      },
+      transform: (line, controller) => parser.parse(line, controller),
+      flush: (controller) => parser.flush(controller),
     });
   }
 }
 
+/** A TransformStream that aborts if the provided signal is aborted. */
 export class CancellationTransformer<T> extends TransformStream<T, T> {
   constructor(signal?: AbortSignal) {
+    let abortHandler: (() => void) | undefined;
     super({
-      start(controller) {
+      start: (controller) => {
         if (signal?.aborted) {
-          controller.error(signal.reason ?? new DOMException('Operation aborted', 'AbortError'));
+          controller.error(new DOMException('Operation aborted', 'AbortError'));
           return;
         }
-        signal?.addEventListener(
-          'abort',
-          () => controller.error(signal.reason ?? new DOMException('Operation aborted', 'AbortError')),
-          { once: true }
-        );
+        abortHandler = () => {
+          controller.error(new DOMException('Operation aborted', 'AbortError'));
+          signal?.removeEventListener('abort', abortHandler!);
+        };
+        signal?.addEventListener('abort', abortHandler, { once: true });
       },
     });
   }

@@ -4,22 +4,17 @@ export const sleep = (ms: number, signal?: AbortSignal): Promise<void> => {
       return reject(new DOMException('Operation aborted', 'AbortError'));
     }
 
-    const timeoutId = setTimeout(() => {
-      cleanup();
-      resolve();
-    }, ms);
+    const timeoutId = setTimeout(resolve, ms);
 
     const onAbort = () => {
-      cleanup();
-      reject(signal?.reason ?? new DOMException("Operation aborted", "AbortError"));
-    };
-
-    const cleanup = () => {
       clearTimeout(timeoutId);
-      signal?.removeEventListener('abort', onAbort);
+      reject(new DOMException('Operation aborted', 'AbortError'));
     };
 
     signal?.addEventListener('abort', onAbort, { once: true });
+
+    // Clean up the listener once the sleep promise resolves
+    Promise.resolve().finally(() => signal?.removeEventListener('abort', onAbort));
   });
 };
 

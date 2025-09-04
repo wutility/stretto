@@ -1,81 +1,71 @@
 import { StrettoOpts } from './types';
-import { DEFAULT_RETRIES, DEFAULT_TIMEOUT } from './constants';
+import { DEFAULT_RETRIES, DEFAULT_TIMEOUT, EXPONENTIAL_BASE, INITIAL_BACKOFF_MS, JITTER_FACTOR, MAX_BACKOFF_MS } from './constants';
 import { sleep, isJsonObject } from './utilities';
-import { defaultBackoff, defaultRetryCondition } from './strategies';
+import { BackoffStrategy, RetryStrategy } from "./types";
+
+export const defaultRetryCondition: RetryStrategy = (res: Response) => res.status >= 500 && res.status < 600;
+
+/**
+ * exponential backoff with jitter.
+ * Formula: delay = min(MAX, INITIAL * (BASE ^ (attempt-1)))
+ * Jitter is applied to spread out retry attempts.
+ */
+export const defaultBackoff: BackoffStrategy = (attempt) => {
+  const exponentialDelay = INITIAL_BACKOFF_MS * Math.pow(EXPONENTIAL_BASE, attempt - 1);
+  const cappedDelay = Math.min(MAX_BACKOFF_MS, exponentialDelay);
+  return cappedDelay * (1 - JITTER_FACTOR + Math.random() * JITTER_FACTOR);
+};
 
 export async function request(url: string | URL, options: StrettoOpts): Promise<Response> {
-  const {
-    body,
-    headers = {},
-    retries = DEFAULT_RETRIES,
-    timeout = DEFAULT_TIMEOUT,
-    backoffStrategy = defaultBackoff,
-    retryOn = defaultRetryCondition,
-    signal,
-    ...fetchOptions
-  } = options;
+  const { retries = DEFAULT_RETRIES, timeout = DEFAULT_TIMEOUT, ...rest } = options;
+  const { backoffStrategy = defaultBackoff, retryOn = defaultRetryCondition } = rest;
 
   let lastError: Error | undefined;
-  let lastResponse: Response | undefined;
+  
+  const requestHeaders = new Headers(rest.headers);
+  if (isJsonObject(rest.body) && !requestHeaders.has('Content-Type')) {
+    requestHeaders.set('Content-Type', 'application/json');
+  }
 
-  // `retries` means the number of additional attempts. So `retries + 1` total attempts.
   for (let attempt = 0; attempt < retries + 1; attempt++) {
-    // If the external signal is already aborted, we can stop immediately.
-    if (signal?.aborted) {
-      throw new DOMException('Operation aborted', 'AbortError');
+    if (options.signal?.aborted) throw new DOMException('Operation aborted', 'AbortError');
+    
+    if (attempt > 0) {
+      await sleep(backoffStrategy(attempt), options.signal);
     }
-
+    
     const controller = new AbortController();
-    const internalSignal = controller.signal;
-
-    const onAbort = () => controller.abort(signal?.reason);
-    signal?.addEventListener('abort', onAbort, { once: true });
-
-    const timeoutId = setTimeout(() => controller.abort(new DOMException('Request timed out', 'TimeoutError')), timeout);
+    const onAbort = () => controller.abort(options.signal?.reason);
+    options.signal?.addEventListener('abort', onAbort, { once: true });
+    
+    const timeoutId = timeout > 0 ? setTimeout(() => controller.abort(new DOMException('Request timed out', 'TimeoutError')), timeout) : 0;
 
     try {
-      if (attempt > 0) {
-        await sleep(backoffStrategy(attempt), internalSignal);
-      }
-
-      const requestHeaders = new Headers(headers);
-      const fetchOpts: RequestInit = { ...fetchOptions, headers: requestHeaders, signal: internalSignal };
-
-      if (isJsonObject(body)) {
-        requestHeaders.set('Content-Type', 'application/json');
-        fetchOpts.body = JSON.stringify(body);
-      } else {
-        fetchOpts.body = body as BodyInit;
-      }      
+      const fetchOpts: RequestInit = {
+        ...rest,
+        headers: requestHeaders,
+        body: isJsonObject(rest.body) ? JSON.stringify(rest.body) : (rest.body as BodyInit),
+        signal: controller.signal,
+      };
 
       const response = await fetch(url, fetchOpts);
-      lastResponse = response;
 
-      // Don't retry on the last attempt
-      if (attempt < retries && retryOn(response, attempt)) {
+      if (attempt < retries && retryOn(response, options)) {
+        // To prevent resource leaks, we must consume or cancel the body before retrying.
+        // Cancelling is the most efficient way to discard it without reading the data.
+        await response.body?.cancel();
         continue;
       }
-
       return response;
     } catch (error) {
       lastError = error as Error;
-      // If user aborted, throw immediately without further retries.
-      if (signal?.aborted) throw new DOMException('Operation aborted', 'AbortError');
-      // If the error was due to our internal signal (e.g., timeout), re-throw.
-      if (internalSignal.aborted) {
-        if (controller.signal.reason instanceof DOMException) {
-          throw controller.signal.reason;
-        }
+      if (options.signal?.aborted || controller.signal.reason instanceof DOMException) {
         throw lastError;
       }
     } finally {
       clearTimeout(timeoutId);
-      signal?.removeEventListener('abort', onAbort);
+      options.signal?.removeEventListener('abort', onAbort);
     }
-  }
-
-  if (lastResponse) {
-    throw new Error(`Request failed after all retry attempts. Last response status: ${lastResponse.status}`);
   }
 
   throw lastError ?? new Error('Request failed after all retry attempts.');
