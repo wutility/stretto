@@ -1,5 +1,52 @@
 import stretto from '../src/index';
 
+describe('stretto - AbortController', () => {
+  it('should abort a request before completion', async () => {
+    const controller = new AbortController();
+    const promise = stretto('https://httpbin.org/delay/5', { signal: controller.signal, });
+    setTimeout(() => controller.abort(), 300);
+    await expect(promise).rejects.toThrow(/aborted/i);
+  });
+
+  it('should not abort if controller not triggered', async () => {
+    const controller = new AbortController();
+    const res = await stretto('https://httpbin.org/delay/1', { stream: false, signal: controller.signal, });
+    expect(res.ok).toBe(true);
+  });
+});
+
+describe('stretto - AbortController (stream)', () => {
+  it('should abort a stream mid-way', async () => {
+    const controller = new AbortController();
+    const res = await stretto('https://httpbin.org/stream/10', { stream: true, signal: controller.signal, });
+
+    let count = 0;
+    const consume = (async () => {
+      for await (const chunk of res) {
+        count++;
+        if (count >= 2) {
+          controller.abort(); // abort after 2 chunks
+        }
+      }
+    })();
+
+    await expect(consume).rejects.toThrow(/aborted/i);
+    expect(count).toBeGreaterThanOrEqual(1);
+  });
+
+  it('should finish normally if not aborted', async () => {
+    const controller = new AbortController();
+    const res = await stretto('https://httpbin.org/stream/2', { stream: true, signal: controller.signal, });
+
+    let count = 0;
+    for await (const chunk of res) {
+      expect(chunk).toBeDefined();
+      count++;
+    }
+    expect(count).toBe(2);
+  });
+});
+
 describe('stretto - non-stream: network errors', () => {
   it('should throw on network error (e.g., DNS failure)', async () => {
     await expect(stretto('http://non-existent-domain-123.com')).rejects.toThrow();

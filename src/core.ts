@@ -8,7 +8,7 @@ export default async function stretto<T = unknown>(url: string | URL, options: S
   const response = await request(url, opts);
 
   if (!stream && !response.ok) {
-    throw Object.assign(new Error(`Request failed: ${response.status} ${response.statusText}`), { response: response.clone() });
+    throw new Error(`Request failed: ${response.status} ${response.statusText}`);
   }
 
   let bodyConsumed = false;

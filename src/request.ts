@@ -31,7 +31,7 @@ export async function request(url: string | URL, options: StrettoOpts): Promise<
     const onAbort = () => controller.abort(signal?.reason);
     signal?.addEventListener('abort', onAbort, { once: true });
 
-    const timeoutId = timeout > 0 ? setTimeout(() => controller.abort(new DOMException('Request timed out', 'TimeoutError')), timeout) : 0;
+    const timeoutId = setTimeout(() => controller.abort(new DOMException('Request timed out', 'TimeoutError')), timeout);
 
     try {
       if (attempt > 0) {
@@ -42,13 +42,11 @@ export async function request(url: string | URL, options: StrettoOpts): Promise<
       const fetchOpts: RequestInit = { ...fetchOptions, headers: requestHeaders, signal: internalSignal };
 
       if (isJsonObject(body)) {
-        if (!requestHeaders.has('Content-Type')) {
-          requestHeaders.set('Content-Type', 'application/json');
-        }
+        requestHeaders.set('Content-Type', 'application/json');
         fetchOpts.body = JSON.stringify(body);
       } else {
         fetchOpts.body = body as BodyInit;
-      }
+      }      
 
       const response = await fetch(url, fetchOpts);
       lastResponse = response;

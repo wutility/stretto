@@ -67,16 +67,14 @@ export class ParserTransformer<T> extends TransformStream<Uint8Array, T> {
 export class CancellationTransformer<T> extends TransformStream<T, T> {
   constructor(signal?: AbortSignal) {
     super({
-      start: (controller) => {
+      start(controller) {
         if (signal?.aborted) {
-          controller.error(new DOMException('Operation aborted', 'AbortError'));
+          controller.error(signal.reason ?? new DOMException('Operation aborted', 'AbortError'));
           return;
         }
         signal?.addEventListener(
           'abort',
-          () => {
-            controller.error(new DOMException('Operation aborted', 'AbortError'));
-          },
+          () => controller.error(signal.reason ?? new DOMException('Operation aborted', 'AbortError')),
           { once: true }
         );
       },

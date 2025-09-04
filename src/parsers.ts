@@ -76,7 +76,7 @@ export class SseParser<T = unknown> implements Parser<T> {
       data = this.sseBuffer.join('\n');
     }
 
-    if (data === this.endOfStreamSentinel) {
+    if (data.trim() === this.endOfStreamSentinel) {
       return;
     }
 
@@ -111,13 +111,13 @@ export class JsonLinesParser<T = unknown> implements Parser<T> {
       return; // Ignore empty lines
     }
 
-    const text = decoder.decode(line);
+    const text = decoder.decode(line, { stream: true });
     const parsedLine = safeJsonParse<T>(text);
 
     if (parsedLine !== null) {
       controller.enqueue(parsedLine);
     } else if (this.strict) {
-      throw new TypeError(`Invalid JSON received in stream: "${text}"`);
+      throw new TypeError('Invalid JSON received in stream');
     }
     // In non-strict mode, we silently drop the un-parsable line.
   }
