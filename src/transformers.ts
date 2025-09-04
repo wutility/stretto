@@ -2,8 +2,9 @@ import { CR, LF } from './constants';
 import { Parser } from './types';
 
 /**
- * A highly optimized, zero-copy TransformStream that splits a byte stream into lines.
- * It uses a "fast path" to avoid allocations when chunks are not split mid-line.
+ * A TransformStream that splits a byte stream into lines.
+ * It uses `subarray` for efficient slicing and minimizes allocations
+ * by only merging buffers when a line crosses a chunk boundary.
  */
 export class LineTransformer extends TransformStream<Uint8Array, Uint8Array> {
   private leftover: Uint8Array = new Uint8Array(0);
@@ -36,7 +37,12 @@ export class LineTransformer extends TransformStream<Uint8Array, Uint8Array> {
     });
   }
 
+  private MAX_BUFFER_SIZE = 1_000_000; // 1MB safeguard, configurable
+
   private mergeBuffers(a: Uint8Array, b: Uint8Array): Uint8Array {
+    if (a.length + b.length > this.MAX_BUFFER_SIZE) {
+      throw new Error("LineTransformer buffer exceeded maximum size");
+    }
     const result = new Uint8Array(a.length + b.length);
     result.set(a);
     result.set(b, a.length);
@@ -53,6 +59,26 @@ export class ParserTransformer<T> extends TransformStream<Uint8Array, T> {
       },
       flush: (controller) => {
         parser.flush(controller);
+      },
+    });
+  }
+}
+
+export class CancellationTransformer<T> extends TransformStream<T, T> {
+  constructor(signal?: AbortSignal) {
+    super({
+      start: (controller) => {
+        if (signal?.aborted) {
+          controller.error(new DOMException('Operation aborted', 'AbortError'));
+          return;
+        }
+        signal?.addEventListener(
+          'abort',
+          () => {
+            controller.error(new DOMException('Operation aborted', 'AbortError'));
+          },
+          { once: true }
+        );
       },
     });
   }

@@ -1,6 +1,6 @@
 # Stretto
 
-A lightweight, flexible HTTP client for streaming and non-streaming requests in TypeScript/JavaScript environments. Stretto makes it easy to fetch data from APIs with support for streaming responses, retries, timeouts, cancellation, and customizable request options.
+A lightweight, flexible fetch based HTTP client for streaming and non-streaming requests. Stretto makes it easy to fetch data from APIs with support for streaming responses, retries, timeouts, cancellation, and customizable request options.
 
 ## Features
 

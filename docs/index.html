@@ -38,6 +38,8 @@
 
     let streamResponse;
     const outputEl = document.querySelector('pre');
+    console.log('window.stretto ===> ', window.stretto, '\n', 'window.stretto.default ==> ', window.stretto.default, '\n');
+    const stretto = window.stretto.default;
 
     document.getElementById('btn-stream').addEventListener('click', async () => {
       outputEl.innerHTML = '';

@@ -18,5 +18,10 @@ export default defineConfig({
       formats: ['es', 'umd'],
     },
     sourcemap: false,
+    rollupOptions: {
+      output: {
+        exports: "named", // 👈 removes the warning
+      },
+    },
   }
 });
