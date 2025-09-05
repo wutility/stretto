@@ -1,41 +1,37 @@
-export const sleep = (ms: number, signal?: AbortSignal): Promise<void> => {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      return reject(new DOMException('Operation aborted', 'AbortError'));
-    }
+import { BackoffStrategy, RetryStrategy } from "./types";
 
-    const timeoutId = setTimeout(resolve, ms);
+export const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-    const onAbort = () => {
-      clearTimeout(timeoutId);
-      reject(new DOMException('Operation aborted', 'AbortError'));
-    };
 
-    signal?.addEventListener('abort', onAbort, { once: true });
+// Constants for the backoff strategy to improve readability
+const INITIAL_BACKOFF_MS = 100;
+const MAX_BACKOFF_MS = 5000;
+const EXPONENTIAL_BASE = 2;
+const JITTER_FACTOR = 0.5;
 
-    // Clean up the listener once the sleep promise resolves
-    Promise.resolve().finally(() => signal?.removeEventListener('abort', onAbort));
-  });
+export const DEFAULT_BACKOFF: BackoffStrategy = (attempt) => {
+  const exponentialDelay = INITIAL_BACKOFF_MS * Math.pow(EXPONENTIAL_BASE, attempt - 1);
+  const cappedDelay = Math.min(MAX_BACKOFF_MS, exponentialDelay);
+  // Apply jitter: delay * (1 - JITTER_FACTOR + random() * JITTER_FACTOR)
+  // Simplified to: delay * (0.5 + Math.random() * 0.5)
+  return cappedDelay * (1 - JITTER_FACTOR + Math.random() * JITTER_FACTOR);
 };
 
-export const isJsonObject = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value) &&
-  (Object.getPrototypeOf(value) === null || Object.getPrototypeOf(value) === Object.prototype);
+export const DEFAULT_RETRY_ON: RetryStrategy = (res) => res.status >= 500 && res.status < 600; // Retry on 5xx server errors
 
-export const bytesStartWith = (haystack: Uint8Array, needle: Uint8Array): boolean => {
-  if (needle.length > haystack.length) return false;
-  for (let i = 0; i < needle.length; i++) {
-    if (haystack[i] !== needle[i]) return false;
+/**
+ * Creates a combined AbortSignal for user-cancellation and timeouts.
+ * Uses the modern `AbortSignal.any` for optimized, native handling.
+ */
+export function createTimeoutSignal(userSignal?: AbortSignal, timeout: number = 0): AbortSignal {
+  if (timeout <= 0) {
+    // If no timeout, return the user's signal or a dummy one that never aborts.
+    return userSignal ?? new AbortController().signal;
   }
-  return true;
-};
-
-export const trimLeadingSpace = (bytes: Uint8Array): Uint8Array => (bytes[0] === 0x20 ? bytes.subarray(1) : bytes);
-
-export const safeJsonParse = <T = unknown>(text: string): T | null => {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
-};
+  const timeoutSignal = AbortSignal.timeout(timeout);
+  // `AbortSignal.any` is highly optimized for this exact use case.
+  return userSignal
+    // @ts-ignore: Unreachable code error
+    ? AbortSignal.any([userSignal, timeoutSignal])
+    : timeoutSignal;
+}

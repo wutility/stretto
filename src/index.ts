@@ -1,2 +1,2 @@
 export { default } from './core';
-export { SseParser } from './parsers';
+export { sseParser } from './parsers';
