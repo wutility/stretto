@@ -1,3 +1,5 @@
+// src/types.ts
+
 /**
  * A strategy function to determine if a request should be retried based on the response.
  * @param res The Response object from the failed attempt.
@@ -18,7 +20,7 @@ export type BackoffStrategy = (attempt: number) => number;
 export interface StrettoOptions<T> extends RequestInit {
   /** Number of retry attempts. Defaults to 3. */
   retries?: number;
-  /** Timeout in milliseconds for each attempt. Defaults to 30000. */
+  /** Timeout in milliseconds for each attempt. Defaults to 5000. */
   timeout?: number;
   /** A function to calculate the delay between retries. */
   backoffStrategy?: BackoffStrategy;
@@ -34,6 +36,12 @@ export interface StrettoOptions<T> extends RequestInit {
    * If `null`, provides a raw `Uint8Array` stream.
    */
   parser?: TransformStream<Uint8Array, T> | null;
+
+  includeEventAndId?: boolean;
+  minBufferSize?: number;
+  maxBufferSize?: number;
+
+  onStreamError?: (error: Error, rawData?: Uint8Array) => void;
 }
 
 /**

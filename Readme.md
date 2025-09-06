@@ -5,7 +5,6 @@ A lightweight, flexible fetch based HTTP client for streaming and non-streaming 
 ## Features
 
 - **Streaming Support:** Iterate over response data as it arrives using async iterables for SSE, NDJSON, and other line-based protocols.
-- **Type-Safe Responses:** Strong TypeScript types for better DX and safer code.
 - **Retry Mechanism:** Configurable retries with custom backoff strategies and retry conditions.
 - **Timeout Handling:** Prevent hanging requests with built-in timeouts.
 - **Cancellation Support:** Use `AbortSignal` to cancel requests at any time.
@@ -108,29 +107,6 @@ fetchWithOptions();
 
 Fetches data from the specified URL with optional configuration.
 
-#### Parameters
-
-- `url`: The URL to fetch (string or `URL` object).
-- `options`: Configuration options (`StrettoOpts<T>`):
-  - `body`: Request body (`BodyInit` or object for JSON).
-  - `headers`: Custom headers (`HeadersInit`).
-  - `method`: HTTP method (e.g., `'GET'`, `'POST'`).
-  - `retries`: Number of retry attempts.
-  - `timeout`: Request timeout in milliseconds.
-  - `signal`: `AbortSignal` for cancellation.
-  - `backoffStrategy`: Function to calculate delay between retries.
-  - `retryOn`: Function to determine if a retry should occur based on the response.
-  - `stream`: Enable streaming mode (`true`/`false`, default: `false`).
-  - `parser`: Custom parser for stream events (advanced).
-
-#### Returns
-
-A `StrettoStreamableResponse<T>` object with:
-- Standard response properties: `headers`, `ok`, `status`, `statusText`, `url`.
-- Body-consuming methods: `json()`, `text()`, `blob()`, `arrayBuffer()`, `formData()`.
-- `body`: The raw `ReadableStream` (or `null`).
-- Async iterable support when `stream: true`.
-
 ### Example with Cancellation
 
 Use an `AbortController` to cancel a request:
@@ -154,50 +130,6 @@ async function cancelableRequest() {
 cancelableRequest();
 ```
 
-## Using a Custom Parser
-
-Stretto allows you to provide your own parser to transform each line or event from a stream.  
-A parser is a class or object that implements the following interface:
-
-```typescript
-interface Parser<T> {
-  parse(chunk: Uint8Array, controller: TransformStreamDefaultController<T | string>): void;
-  flush(controller: TransformStreamDefaultController<T | string>): void;
-}
-```
-
-### Custom Parser: Uppercase Line Parser
-
-Here's a minimal example that turns every streamed line into an uppercase string:
-
-```typescript
-import stretto from 'stretto';
-
-// Custom parser that uppercases each line
-class UppercaseParser implements Parser<string> {
-  parse(chunk, controller) {
-    const text = new TextDecoder().decode(chunk);
-    controller.enqueue(text.toUpperCase());
-  }
-  flush(controller) {}
-}
-
-async function streamUppercase() {
-  const res = await stretto('https://stream.wikimedia.org/v2/stream/recentchange', {
-    stream: true,
-    parser: new UppercaseParser(),
-  });
-
-  let count = 0;
-  for await (const line of res) {
-    console.log(line); // Each line is now uppercase text!
-    if (++count >= 5) break;
-  }
-}
-
-streamUppercase();
-```
-
 ## Types
 
 ### StrettoOpts<T>
@@ -213,7 +145,13 @@ interface StrettoOpts<T = unknown> {
   backoffStrategy?: (attempt: number) => number;
   retryOn?: (response: Response) => boolean;
   stream?: boolean;
-  parser?: Parser<T>;
+  parser?: TransformStream<Uint8Array, T> | null;
+
+  includeEventAndId?: boolean;
+  minBufferSize?: number;
+  maxBufferSize?: number;
+
+  onStreamError?: (error: Error, rawData?: Uint8Array) => void;
 }
 ```
 

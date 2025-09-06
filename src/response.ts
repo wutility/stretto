@@ -1,4 +1,6 @@
-import { sseParser } from "./parsers";
+// src/response.ts
+
+import { sseTransformer } from "./transformers/sseTransformer";
 import { StrettoOptions, StrettoStreamableResponse } from "./types";
 
 /**
@@ -7,28 +9,33 @@ import { StrettoOptions, StrettoStreamableResponse } from "./types";
  */
 export default function makeResponseStreamable<T>(
   response: Response,
-  options: Pick<StrettoOptions<T>, "stream" | "strictJson" | "parser">,
+  options: StrettoOptions<T>,
 ): StrettoStreamableResponse<T> {
+  // Ensures the stream is consumed only once, mimicking native Response behavior.
   let iteratorUsed = false;
 
   Object.defineProperty(response, Symbol.asyncIterator, {
     value: async function* () {
       if (iteratorUsed) {
-        throw new Error("Body has already been consumed. Use response.clone() for multiple iterations.");
+        throw new Error(
+          "Body has already been consumed. Use response.clone() for multiple iterations.",
+        );
       }
       if (!response.body) return;
       iteratorUsed = true;
 
       if (!options.stream) {
-        // Non-streaming: parse the entire body as one JSON object.
-        const data = await response.json();
-        yield data as T;
-        return;
+        return response;
       }
 
       // Streaming: select the correct parser or use a raw stream.
       const parser = options.parser === undefined
-        ? sseParser<T>({ strictJson: options.strictJson ?? true })
+        ? sseTransformer<T>({
+          strictJson: options.strictJson ?? true,
+          includeEventAndId: options.includeEventAndId ?? false,
+          minBufferSize: options.minBufferSize ?? 1024,
+          maxBufferSize: options.maxBufferSize ?? 1024 * 4,
+        })
         : options.parser;
 
       const stream = parser === null
@@ -42,9 +49,15 @@ export default function makeResponseStreamable<T>(
           if (done) break;
           yield value;
         }
+      } catch (e) {
+        if (options.onStreamError) {
+          options.onStreamError(e);
+        }
+        throw e;
       } finally {
         // Crucial for resource cleanup. This prevents memory leaks by ensuring the
-        // stream reader lock is always released, even if the consumer loop breaks or throws an error.
+        // stream reader lock is always released, even if the consumer loop breaks
+        // or throws an error.
         reader.releaseLock();
       }
     },

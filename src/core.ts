@@ -1,23 +1,34 @@
+// src/core.ts
 import { DEFAULT_RETRIES, DEFAULT_TIMEOUT } from "./constants";
+import { HTTPError } from "./errors";
 import makeResponseStreamable from "./response";
 import { StrettoOptions, StrettoStreamableResponse } from "./types";
-import { DEFAULT_BACKOFF, DEFAULT_RETRY_ON, createTimeoutSignal, sleep } from "./utilities";
-
-/**
- * An error representing a non-successful HTTP response. It includes the response object for further inspection.
- */
-export class HTTPError extends Error {
-  public readonly response: Response;
-
-  constructor(message: string, response: Response) {
-    super(message);
-    this.name = "HTTPError";
-    this.response = response;
-  }
-}
+import {
+  createTimeoutSignal,
+  DEFAULT_BACKOFF,
+  DEFAULT_RETRY_ON,
+  sleep,
+} from "./utilities";
 
 /**
  * An enhanced fetch client with retries, timeouts, and high-performance streaming.
+ *
+ * @template T The expected type of the response body or streamed chunks.
+ * @param url The URL to fetch.
+ * @param options Configuration for the request, including retries, timeout, and streaming.
+ * @returns A promise that resolves to a Response object which is also an async iterable.
+ *
+ * @example
+ * // Simple JSON GET
+ * const user = await stretto('https://api.example.com/user/1').then(res => res.json());
+ * // Simple arrayBuffer GET
+ * const user = await stretto('https://api.example.com/user/1').then(res => res.arrayBuffer());
+ *
+ * // Streaming Server-Sent Events
+ * const stream = await stretto('https://api.example.com/events', { stream: true });
+ * for await (const event of stream) {
+ *   console.log(event);
+ * }
  */
 export default async function stretto<T = unknown>(url: string | URL, options: StrettoOptions<T> = {},): Promise<StrettoStreamableResponse<T>> {
   const {
@@ -27,6 +38,8 @@ export default async function stretto<T = unknown>(url: string | URL, options: S
     retryOn = DEFAULT_RETRY_ON,
     stream = false,
     strictJson = true,
+    minBufferSize = 1024,
+    maxBufferSize = 8 * 1024,
     parser,
     signal: userSignal,
     ...fetchInit
@@ -36,53 +49,50 @@ export default async function stretto<T = unknown>(url: string | URL, options: S
     throw new RangeError("Retries and timeout must be non-negative.");
   }
 
-  let attempt = 0;
   let lastError: Error | undefined;
 
-  while (attempt <= retries) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
     const signal = createTimeoutSignal(userSignal, timeout);
 
-    // Fast check for immediate abortion before fetching to avoid unnecessary network requests.
     if (signal.aborted) {
-      throw signal.reason ?? new DOMException('Request aborted', 'AbortError');
+      // Fail fast if the signal is already aborted.
+      throw signal.reason ??
+      new DOMException("Request aborted before fetch", "AbortError");
     }
 
     try {
       const res = await fetch(url, { ...fetchInit, signal });
+      if (res.ok) return makeResponseStreamable(res, { stream, strictJson, parser });
 
-      if (res.ok) {
-        return makeResponseStreamable(res, { stream, strictJson, parser });
+      lastError = new HTTPError(`Request failed with status ${res.status}: ${res.statusText}`, res,);
+
+      if (!retryOn(res)) {
+        // If the custom retry strategy returns false, fail immediately.
+        throw lastError;
       }
-
-      const httpError = new HTTPError(`Request failed with status ${res.status}: ${res.statusText}`, res,);
-
-      if (attempt >= retries || !retryOn(res)) {
-        throw httpError;
-      }
-      lastError = httpError;
-
     } catch (error) {
       lastError = error as Error;
 
-      // Do not retry on client-side errors like abort/timeout or unrecoverable network issues.
-      if (error instanceof DOMException && (error.name === "AbortError" || error.name === "TimeoutError")) {
-        throw error;
-      }
-      if (error instanceof TypeError && error.message.includes('fetch')) {
-        throw error;
-      }
-
-      if (attempt >= retries) {
-        break; // Exit loop to throw the final captured error.
+      // Do not retry on user cancellation or timeouts; these are terminal.
+      if (
+        error instanceof DOMException &&
+        (error.name === "AbortError" || error.name === "TimeoutError")
+      ) {
+        throw lastError;
       }
     }
 
-    attempt++;
-    if (attempt <= retries) {
-      await sleep(backoffStrategy(attempt - 1));
+    // If this was the last attempt, break the loop to throw the error.
+    if (attempt >= retries) {
+      break;
+    }
+
+    // Wait before the next attempt.
+    if (attempt < retries && !signal.aborted) {
+      await sleep(backoffStrategy(attempt));
     }
   }
 
-  // After all retries, throw the last captured error to preserve its original type and context.
-  throw lastError ?? new DOMException(`Request failed after ${retries + 1} attempts.`, 'AbortError');
+  // Simpler and more robust final throw
+  throw lastError ?? new Error(`Request failed after ${retries + 1} attempts.`);
 }
