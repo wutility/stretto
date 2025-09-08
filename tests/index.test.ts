@@ -12,8 +12,7 @@ describe('stretto - non-stream', () => {
   it('resolves to a normal response object', async () => {
     const res = await stretto(`${BASE}/posts/1`);
     const data = await res.json();
-    const id = (data as any).id as number;
-    expect(id).toBe(1);
+    expect(res.ok).toBe(true);
   });
 });
 

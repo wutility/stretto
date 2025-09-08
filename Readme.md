@@ -178,6 +178,9 @@ Contributions are welcome! Please submit issues or pull requests
 4. Push to the branch (`git push origin feature/your-feature`).
 5. Open a pull request.
 
+# Resources
+- [whatwg spec SSE](https://html.spec.whatwg.org/multipage/server-sent-events.html)
+
 ## License
 
 Stretto is licensed under the [MIT License](LICENSE).
