@@ -10,11 +10,8 @@ export interface StrettoOptions<T> extends RequestInit {
   retryOn?: (error: unknown, response?: Response) => boolean;
   /** Set to true to process the response as a stream. Defaults to false. */
   stream?: boolean;
-  /** If true, throws an error on invalid JSON in a stream. Defaults to true. */
-  strictJson?: boolean;
   /**
    * A custom TransformStream to parse the response body.
-   * If `undefined` (default), uses a high-performance SSE parser for streams.
    * If `null`, provides a raw `Uint8Array` stream.
    */
   transformers?: TransformStream<Uint8Array, T>[] | null;  

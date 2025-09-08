@@ -1,15 +1,22 @@
 # Stretto
 
-A lightweight, flexible fetch based HTTP client for streaming and non-streaming requests. Stretto makes it easy to fetch data from APIs with support for streaming responses, retries, timeouts, cancellation, and customizable request options.
+A lightweight, flexible fetch based HTTP client for streaming and non-streaming
+requests. Stretto makes it easy to fetch data from APIs with support for
+streaming responses, retries, timeouts, cancellation, and customizable request
+options.
 
 ## Features
 
-- **Streaming Support:** Iterate over response data as it arrives using async iterables for SSE, NDJSON, and other line-based protocols.
-- **Retry Mechanism:** Configurable retries with custom backoff strategies and retry conditions.
+- **Streaming Support:** Iterate over response data as it arrives using async
+  iterables for SSE, NDJSON, and other line-based protocols.
+- **Retry Mechanism:** Configurable retries with custom backoff strategies and
+  retry conditions.
 - **Timeout Handling:** Prevent hanging requests with built-in timeouts.
 - **Cancellation Support:** Use `AbortSignal` to cancel requests at any time.
-- **Flexible Body Parsing:** Supports JSON, text, blob, array buffer, and form data.
-- **Customizable Headers & Methods:** Full control over HTTP headers and methods.
+- **Flexible Body Parsing:** Supports JSON, text, blob, array buffer, and form
+  data.
+- **Customizable Headers & Methods:** Full control over HTTP headers and
+  methods.
 - **Low-level Stream Access:** Access and transform raw `ReadableStream` data.
 
 <div align="center" style="width:100%; text-align:center; margin-bottom:20px;">
@@ -35,7 +42,9 @@ npm install stretto
 Or use the CDN:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/stretto/dist/index.umd.min.js"></script>
+<script
+  src="https://cdn.jsdelivr.net/npm/stretto/dist/index.umd.min.js"
+></script>
 <!-- window.stretto is available -->
 ```
 
@@ -46,10 +55,12 @@ Or use the CDN:
 Make a simple HTTP request and parse the response as JSON:
 
 ```typescript
-import stretto from 'stretto';
+import stretto from "stretto";
 
 async function fetchData() {
-  const response = await stretto('https://jsonplaceholder.typicode.com/todos/1');
+  const response = await stretto(
+    "https://jsonplaceholder.typicode.com/todos/1",
+  );
   const data = await response.json();
   console.log(data);
 }
@@ -59,13 +70,20 @@ fetchData();
 
 ### Streaming Server-Sent Events (SSE)
 
-Enable streaming to process data chunks as they arrive. This example uses Wikimedia's public SSE endpoint:
+Enable streaming to process data chunks as they arrive. This example uses
+Wikimedia's public SSE endpoint:
 
 ```typescript
-import stretto from 'stretto';
+import stretto, { SSEStreamTransformer } from "stretto";
 
 async function streamRecentChanges() {
-  const response = await stretto('https://stream.wikimedia.org/v2/stream/recentchange', { stream: true });
+  const response = await stretto(
+    "https://stream.wikimedia.org/v2/stream/recentchange",
+    {
+      transformers: [new SSEStreamTransformer({ parseData: true })],
+      stream: true,
+    },
+  );
   let count = 0;
   for await (const event of response) {
     console.log(event);
@@ -82,18 +100,21 @@ streamRecentChanges();
 Configure retries, timeouts, and custom headers:
 
 ```typescript
-import stretto from 'stretto';
+import stretto from "stretto";
 
 async function fetchWithOptions() {
-  const response = await stretto('https://jsonplaceholder.typicode.com/todos/1', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: { key: 'value' },
-    retries: 3,
-    timeout: 5000,
-    backoffStrategy: (attempt) => Math.min(1000 * 2 ** attempt, 5000),
-    retryOn: (response) => response.status === 429,
-  });
+  const response = await stretto(
+    "https://jsonplaceholder.typicode.com/todos/1",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "value" }),
+      retries: 3,
+      timeout: 5000,
+      backoffStrategy: (attempt) => Math.min(1000 * 2 ** attempt, 5000),
+      retryOn: (response) => response.status === 429,
+    },
+  );
   const data = await response.json();
   console.log(data);
 }
@@ -101,72 +122,80 @@ async function fetchWithOptions() {
 fetchWithOptions();
 ```
 
-## API
-
-### stretto(url: string | URL, options?: StrettoOpts<T>): Promise<StrettoStreamableResponse<T>>
-
-Fetches data from the specified URL with optional configuration.
-
-### Example with Cancellation
+## Example with Cancellation
 
 Use an `AbortController` to cancel a request:
 
 ```typescript
-import stretto from 'stretto';
+import stretto, { SSEStreamTransformer } from "stretto";
 
-async function cancelableRequest() {
-  const controller = new AbortController();
-  const response = stretto('https://jsonplaceholder.typicode.com/todos/1', { signal: controller.signal });
+const controller = new AbortController();
+const Origin = "https://stream.wikimedia.org/v2/stream/recentchange";
+const stream = await stretto(Origin, {
+  stream: true,
+  method: "GET",
+  signal: controller.signal,
+  transformers: [
+    new SSEStreamTransformer({
+      parseData: true,
+      minBufferSize: 2 * 1024,
+      maxBufferSize: 8 * 1024,
+    }),
+  ],
+});
 
-  setTimeout(() => controller.abort(), 2000); // Cancel after 2 seconds
-  try {
-    const data = await (await response).json();
-    console.log(data);
-  } catch (error) {
-    console.error('Request failed or was canceled:', error);
-  }
+let counter = 0;
+for await (const chunk of stream) {
+  counter++;
+  if (counter > 1) controller.abort();
+  console.log(counter, chunk, "\n");
 }
+```
 
-cancelableRequest();
+```ts
+import stretto, { JSONStreamTransformer } from "stretto";
+
+const controller = new AbortController();
+const stream = await stretto(
+  `https://wise-dog-32.jimmy-wright.deno.net/llm/gemini`,
+  {
+    signal: controller.signal,
+    stream: true,
+    transformers: [new JSONStreamTransformer()],
+  },
+);
+
+let counter = 0;
+for await (const chunk of stream) {
+  counter++;
+  if (counter > 2) controller.abort();
+  console.log("\nchunk ===> ", chunk);
+}
 ```
 
 ## Types
 
-### StrettoOpts<T>
+### StrettoOptions<T>
 
 ```typescript
-interface StrettoOpts<T = unknown> {
-  body?: BodyInit | Record<string, unknown>;
-  headers?: HeadersInit;
-  method?: string;
+export interface StrettoOptions<T> extends RequestInit {
+  /** Number of retry attempts. Defaults to 3. */
   retries?: number;
+  /** Timeout in milliseconds for each attempt. Defaults to 5000. */
   timeout?: number;
-  signal?: AbortSignal;
+  /** A function to calculate the delay between retries. */
   backoffStrategy?: (attempt: number) => number;
-  retryOn?: (response: Response) => boolean;
+  /** A function to determine if a failed request should be retried. */
+  retryOn?: (error: unknown, response?: Response) => boolean;
+  /** Set to true to process the response as a stream. Defaults to false. */
   stream?: boolean;
-  parser?: TransformStream<Uint8Array, T> | null;
-
-  includeEventAndId?: boolean;
-  minBufferSize?: number;
-  maxBufferSize?: number;
-
-  onStreamError?: (error: Error, rawData?: Uint8Array) => void;
+  /**
+   * A custom TransformStream to parse the response body.
+   * If `null`, provides a raw `Uint8Array` stream.
+   */
+  transformers?: TransformStream<Uint8Array, T>[] | null;
 }
 ```
-
-### StrettoStreamableResponse<T>
-
-Combines standard `Response` properties with async iterable support for streaming.
-
-## Testing Streaming Endpoints
-
-Here are example endpoints you can use for streaming tests:
-
-- **Wikimedia Recent Changes SSE:**  
-  `https://stream.wikimedia.org/v2/stream/recentchange`
-- **Other Public SSE/NDJSON:**  
-  You can use [demo.ndjson.org](https://demo.ndjson.org/) or other similar endpoints.
 
 ## Contributing
 
@@ -179,6 +208,7 @@ Contributions are welcome! Please submit issues or pull requests
 5. Open a pull request.
 
 # Resources
+
 - [whatwg spec SSE](https://html.spec.whatwg.org/multipage/server-sent-events.html)
 
 ## License
