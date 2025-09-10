@@ -149,7 +149,34 @@ class SSEProcessor<T> {
       fieldValue = line.substring(valueStart);
     }
 
-    // ... (switch statement remains the same) ...
+    switch (fieldName) {
+      case "event":
+        this.eventTypeBuffer = fieldValue;
+        break;
+      case "data":
+        this.dataBufferParts.push(fieldValue);
+        break;
+      case "id":
+        if (fieldValue.indexOf("\u0000") === -1) {
+          this.lastEventIdBuffer = fieldValue;
+        }
+        break;
+      case "retry":
+        let isOnlyDigits = fieldValue.length > 0;
+        for (let i = 0; i < fieldValue.length; i++) {
+          const charCode = fieldValue.charCodeAt(i);
+          if (charCode < 48 || charCode > 57) { // '0' to '9'
+            isOnlyDigits = false;
+            break;
+          }
+        }
+        if (isOnlyDigits) {
+          // Logic for setting reconnection delay would go here.
+        }
+        break;
+      default:
+        break;
+    }
   }
 
   private dispatchEvent(controller: TransformStreamDefaultController<SSEEvent<T>>,) {
