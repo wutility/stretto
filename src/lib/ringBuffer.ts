@@ -1,83 +1,76 @@
+// file: ringBuffer.ts
+
 export class RingBuffer {
-  private buffer: Uint8Array;
+  private readonly buffer: Uint8Array;
   private writePos = 0;
   private readPos = 0;
   private _occupied = 0;
-  private mask: number;
-  private readonly maxSize: number;
+  private readonly mask: number;
 
-  constructor(initialSize: number, maxSize: number) {
-    if (initialSize <= 0) throw new RangeError("initialSize must be positive.");
-    if (maxSize < initialSize) {
-      throw new RangeError("maxSize must be >= initialSize.");
-    }
-    const sz = 1 << (31 - Math.clz32(initialSize - 1 | 0));
+  constructor(size: number) {
+    if (size <= 0) throw new RangeError("Buffer size must be positive.");
+    // Force size to the next power of two for efficient bitwise masking
+    const sz = 1 << (31 - Math.clz32(size - 1 | 0));
     this.buffer = new Uint8Array(sz);
     this.mask = sz - 1;
-    this.maxSize = maxSize;
   }
 
   get occupied(): number {
     return this._occupied;
+  }
+  get capacity(): number {
+    return this.buffer.length;
   }
 
   peekByte(offset: number): number {
     return this.buffer[(this.readPos + offset) & this.mask];
   }
 
+  /**
+   * Writes a chunk to the buffer.
+   * @returns `false` if the buffer does not have enough capacity.
+   */
   write(chunk: Uint8Array): boolean {
     const len = chunk.length;
-    if (len > this.buffer.length - this._occupied && !this.resize(len)) {
+    if (this._occupied + len > this.buffer.length) {
+      // Not enough space, write fails.
       return false;
     }
+
     const w = this.writePos;
-    const first = Math.min(len, this.buffer.length - w);
-    this.buffer.set(chunk.subarray(0, first), w);
-    const second = len - first;
-    if (second > 0) this.buffer.set(chunk.subarray(first), 0);
+    const part1Len = Math.min(len, this.buffer.length - w);
+    this.buffer.set(chunk.subarray(0, part1Len), w);
+
+    const part2Len = len - part1Len;
+    if (part2Len > 0) {
+      this.buffer.set(chunk.subarray(part1Len), 0);
+    }
+
     this.writePos = (w + len) & this.mask;
     this._occupied += len;
     return true;
   }
 
   getView(startOffset: number, len: number): Uint8Array {
-    const phys = (this.readPos + startOffset) & this.mask;
+    const physStart = (this.readPos + startOffset) & this.mask;
 
-    return this.buffer.subarray(phys, phys + len);
+    // Simple case: the view does not wrap around the buffer's physical end
+    if (physStart + len <= this.buffer.length) {
+      return this.buffer.subarray(physStart, physStart + len);
+    }
+
+    // Complex case: view wraps around, needs a temporary copy
+    const combined = new Uint8Array(len);
+    const part1Len = this.buffer.length - physStart;
+    combined.set(this.buffer.subarray(physStart));
+    combined.set(this.buffer.subarray(0, len - part1Len), part1Len);
+    return combined;
   }
 
   consume(len: number): void {
     if (len <= 0) return;
+    len = Math.min(len, this._occupied); // Do not consume more than occupied
     this._occupied -= len;
     this.readPos = (this.readPos + len) & this.mask;
-  }
-
-  matchSequence(pos: number, sequence: number[]): boolean {
-    for (let i = 0; i < sequence.length; i++) {
-      if (this.peekByte(pos + i) !== sequence[i]) return false;
-    }
-    return true;
-  }
-
-  private resize(required: number): boolean {
-    const newSize = 1 << (31 - Math.clz32(this._occupied + required - 1 | 0));
-    if (newSize > this.maxSize) return false;
-    const newBuffer = new Uint8Array(newSize);
-    if (this._occupied > 0) {
-      const r = this.readPos;
-      const w = this.writePos;
-      if (r < w) {
-        newBuffer.set(this.buffer.subarray(r, w), 0);
-      } else {
-        const tail = this.buffer.length - r;
-        newBuffer.set(this.buffer.subarray(r), 0);
-        newBuffer.set(this.buffer.subarray(0, w), tail);
-      }
-    }
-    this.buffer = newBuffer;
-    this.readPos = 0;
-    this.writePos = this._occupied;
-    this.mask = newSize - 1;
-    return true;
   }
 }

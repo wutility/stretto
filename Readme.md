@@ -138,8 +138,7 @@ const stream = await stretto(Origin, {
   transformers: [
     new SSEStreamTransformer({
       parseData: true,
-      minBufferSize: 2 * 1024,
-      maxBufferSize: 8 * 1024,
+      bufferSize: 8 * 1024
     }),
   ],
 });
