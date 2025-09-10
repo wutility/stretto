@@ -7,7 +7,7 @@ export class RingBuffer {
   private _occupied = 0;
   private readonly mask: number;
 
-  constructor(size: number) {
+  constructor(size: number = 8192) {
     if (size <= 0) throw new RangeError("Buffer size must be positive.");
     // Force size to the next power of two for efficient bitwise masking
     const sz = 1 << (31 - Math.clz32(size - 1 | 0));

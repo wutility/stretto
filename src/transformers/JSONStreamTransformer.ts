@@ -4,7 +4,6 @@ const decoder = new TextDecoder();
 const NEWLINE = 0x0A;
 const DONE_PREFIX = "[DONE]";
 const DATA_PREFIX = "data: ";
-const bufferSize: number = 8192; // 8KB fixed buffer
 
 export interface JSONStreamTransformerOptions {
   donePrefix?: string
@@ -14,7 +13,7 @@ export interface JSONStreamTransformerOptions {
 }
 
 export class JSONStreamTransformer extends TransformStream<Uint8Array, any> {
-  constructor(options: JSONStreamTransformerOptions) {
+  constructor(options?: JSONStreamTransformerOptions) {
     super(new JSONTransformer(options));
   }
 }
@@ -28,7 +27,6 @@ class JSONTransformer {
       donePrefix: DONE_PREFIX,
       dataPrefix: DATA_PREFIX,
       parseData: true,
-      bufferSize: bufferSize,
       ...ops
     };
 
