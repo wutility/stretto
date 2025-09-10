@@ -1,15 +1,16 @@
-import { RingBuffer } from "../lib/ringBuffer";
-
-const decoder = new TextDecoder();
-const NEWLINE = 0x0A;
-const DONE_PREFIX = "[DONE]";
-const DATA_PREFIX = "data: ";
+// Constants
+const NEWLINE = 0x0a; // '\n'
+const CARRIAGE_RETURN = 0x0d; // '\r'
+const DATA_PREFIX = new Uint8Array([100, 97, 116, 97, 58, 32]); // "data: "
+const DONE_MARKER = new Uint8Array([91, 68, 79, 78, 69, 93]); // "[DONE]"
+const sharedTextDecoder = new TextDecoder();
+const sharedTextEncoder = new TextEncoder();
 
 export interface JSONStreamTransformerOptions {
-  donePrefix?: string
-  dataPrefix?: string
+  donePrefix?: string;
+  dataPrefix?: string;
   parseData?: boolean;
-  bufferSize?: number;
+  maxBufferSize?: number;
 }
 
 export class JSONStreamTransformer extends TransformStream<Uint8Array, any> {
@@ -19,111 +20,231 @@ export class JSONStreamTransformer extends TransformStream<Uint8Array, any> {
 }
 
 class JSONTransformer {
-  private options: JSONStreamTransformerOptions;
-  private ringBuffer: RingBuffer;
+  private readonly dataPrefix: Uint8Array;
+  private readonly donePrefix: Uint8Array;
+  private readonly parseData: boolean;
+  private readonly maxBufferSize: number;
+  private buffer: Uint8Array;
+  private writePos = 0;
+  private readPos = 0;
+  private occupied = 0;
 
-  constructor(ops?: JSONStreamTransformerOptions) {
-    this.options = {
-      donePrefix: DONE_PREFIX,
-      dataPrefix: DATA_PREFIX,
-      parseData: true,
-      ...ops
-    };
+  constructor(options: JSONStreamTransformerOptions = {}) {
+    this.parseData = options.parseData ?? true;
+    this.maxBufferSize = options.maxBufferSize || 8192;
+    this.buffer = new Uint8Array(this.maxBufferSize);
 
-    this.ringBuffer = new RingBuffer(this.options.bufferSize);
+    this.dataPrefix = options.dataPrefix
+      ? sharedTextEncoder.encode(options.dataPrefix)
+      : DATA_PREFIX;
+    this.donePrefix = options.donePrefix
+      ? sharedTextEncoder.encode(options.donePrefix)
+      : DONE_MARKER;
   }
 
-  transform(chunk: Uint8Array, controller: TransformStreamDefaultController<any>,) {
-    // Write the incoming chunk to our buffer.
-    if (!this.ringBuffer.write(chunk)) {
-      controller.error(
-        new Error(
-          "Buffer overflow. A single message or line might be larger than the buffer size.",
-        ),
-      );
+  transform(
+    chunk: Uint8Array,
+    controller: TransformStreamDefaultController<any>,
+  ) {
+    if (chunk.length === 0) return;
+
+    // Fast path for exact data prefix match
+    if (
+      chunk.length === this.dataPrefix.length &&
+      this.bytesEqual(chunk, this.dataPrefix)
+    ) {
+      if (this.ensureCapacity(chunk.length)) {
+        this.writeChunk(chunk);
+      }
       return;
     }
-    // Process the buffer, looking for complete lines.
+
+    // Ensure we have enough space
+    if (this.occupied + chunk.length > this.maxBufferSize) {
+      this.reset();
+      console.warn("Buffer overflow: Discarding data to prevent overflow");
+      return;
+    }
+
+    this.writeChunk(chunk);
     this.processBuffer(controller);
   }
 
   flush(controller: TransformStreamDefaultController<any>) {
-    this.processBuffer(controller, true);
+    if (this.occupied > 0) {
+      this.processLine(controller, this.readPos, this.occupied);
+    }
+    this.reset();
   }
 
-  /**
-   * Scans the RingBuffer for newline characters, indicating complete lines.
-   * This is far more robust for SSE streams than counting braces.
-   */
-  private processBuffer(controller: TransformStreamDefaultController<any>, isFlush = false,) {
-    let pos = 0;
+  private writeChunk(chunk: Uint8Array) {
+    const wrapPoint = this.maxBufferSize - this.writePos;
 
-    while (pos < this.ringBuffer.occupied) {
-      // Search for the next newline character.
-      const newlineIndex = this.findByte(NEWLINE, pos);
+    if (chunk.length <= wrapPoint) {
+      this.buffer.set(chunk, this.writePos);
+    } else {
+      this.buffer.set(chunk.subarray(0, wrapPoint), this.writePos);
+      this.buffer.set(chunk.subarray(wrapPoint), 0);
+    }
 
-      if (newlineIndex === -1) {
-        // No complete line found in the buffer.
-        // If flushing, process the remaining partial line.
-        if (isFlush && this.ringBuffer.occupied > 0) {
-          this.parseLine(controller, this.ringBuffer.occupied);
-          this.ringBuffer.consume(this.ringBuffer.occupied);
-        }
-        // Otherwise, wait for more data to complete the line.
+    this.writePos = (this.writePos + chunk.length) % this.maxBufferSize;
+    this.occupied += chunk.length;
+  }
+
+  private processBuffer(controller: TransformStreamDefaultController<any>) {
+    while (this.occupied > 0) {
+      const newlinePos = this.findByte(NEWLINE);
+
+      if (newlinePos === -1) {
+        this.compactBuffer();
         break;
       }
 
-      // We found a complete line.
-      const lineLength = newlineIndex - pos;
-      this.parseLine(controller, lineLength);
+      let lineLength = newlinePos - this.readPos;
+      // Check for CR before NL
+      if (
+        lineLength > 0 &&
+        this.buffer[(this.readPos + lineLength - 1) % this.maxBufferSize] ===
+        CARRIAGE_RETURN
+      ) {
+        lineLength--;
+      }
 
-      // Consume the line and its newline character from the buffer.
-      const bytesToConsume = lineLength + 1;
-      this.ringBuffer.consume(bytesToConsume);
+      if (lineLength > 0) {
+        this.processLine(controller, this.readPos, lineLength);
+      }
 
-      // Reset position to scan again from the start of the modified buffer.
-      pos = 0;
+      // Move past this line including newline
+      const consumeLength = newlinePos - this.readPos + 1;
+      this.readPos = (this.readPos + consumeLength) % this.maxBufferSize;
+      this.occupied -= consumeLength;
     }
   }
 
-  /**
-   * Parses a single line of data from the buffer.
-   */
-  private parseLine(controller: TransformStreamDefaultController<any>, lineLength: number,) {
-    if (lineLength === 0) return; // Skip empty lines
+  private processLine(
+    controller: TransformStreamDefaultController<any>,
+    start: number,
+    length: number,
+  ) {
+    if (length < this.dataPrefix.length) return;
 
-    const view = this.ringBuffer.getView(0, lineLength);
-    const line = decoder.decode(view);
+    // Check if line starts with data prefix
+    if (!this.matchPrefix(this.dataPrefix, start)) {
+      return;
+    }
 
-    if (line.startsWith(this.options.dataPrefix)) {
-      const jsonString = line.substring(this.options.dataPrefix.length);
+    const jsonStart = (start + this.dataPrefix.length) % this.maxBufferSize;
+    const jsonLength = length - this.dataPrefix.length;
+    if (jsonLength === 0) return;
 
-      // Some streams send a [DONE] message
-      if (jsonString.trim() === this.options.donePrefix) {
-        controller.terminate();
-        return;
-      }
+    // Check for done marker
+    if (
+      jsonLength === this.donePrefix.length &&
+      this.matchPrefix(this.donePrefix, jsonStart)
+    ) {
+      controller.terminate();
+      this.reset();
+      return;
+    }
 
-      try {
-        controller.enqueue(this.options.parseData ? JSON.parse(jsonString) : jsonString);
-      } catch (e) {
-        this.options.parseData
-          ? console.error("Failed to parse invalid JSON chunk:", jsonString, "Error:", e,)
-          : controller.enqueue(jsonString)
-      }
+    const jsonString = this.decodeRange(jsonStart, jsonLength);
+    try {
+      controller.enqueue(this.parseData ? JSON.parse(jsonString) : jsonString);
+    } catch (e) {
+      console.warn("Failed to parse JSON: " + jsonString);
     }
   }
 
-  /**
-   * Helper to find the first occurrence of a byte in the buffer.
-   * Returns -1 if not found.
-   */
-  private findByte(byte: number, startOffset: number): number {
-    for (let i = startOffset; i < this.ringBuffer.occupied; i++) {
-      if (this.ringBuffer.peekByte(i) === byte) {
-        return i;
-      }
+  private findByte(target: number): number {
+    let pos = this.readPos;
+    const end = this.readPos + this.occupied;
+
+    while (pos < end) {
+      if (this.buffer[pos % this.maxBufferSize] === target) return pos;
+      pos++;
     }
     return -1;
+  }
+
+  private bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) return false;
+    }
+    return true;
+  }
+
+  private matchPrefix(pattern: Uint8Array, start: number): boolean {
+    // Fast path for data prefix (most common case)
+    if (pattern.length === 6 && pattern === DATA_PREFIX) {
+      const s0 = start % this.maxBufferSize;
+      const s1 = (start + 1) % this.maxBufferSize;
+      const s2 = (start + 2) % this.maxBufferSize;
+      const s3 = (start + 3) % this.maxBufferSize;
+      const s4 = (start + 4) % this.maxBufferSize;
+      const s5 = (start + 5) % this.maxBufferSize;
+
+      return this.buffer[s0] === 100 && this.buffer[s1] === 97 &&
+        this.buffer[s2] === 116 && this.buffer[s3] === 97 &&
+        this.buffer[s4] === 58 && this.buffer[s5] === 32;
+    }
+
+    // General case
+    for (let i = 0; i < pattern.length; i++) {
+      if (pattern[i] !== this.buffer[(start + i) % this.maxBufferSize]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private decodeRange(start: number, length: number): string {
+    const endPos = (start + length) % this.maxBufferSize;
+
+    // If the range doesn't wrap around the buffer
+    if (endPos > start || endPos === 0) {
+      return sharedTextDecoder.decode(this.buffer.subarray(start, start + length));
+    }
+
+    // Handle wrap-around case
+    const firstPart = this.buffer.subarray(start);
+    const secondPart = this.buffer.subarray(0, endPos);
+
+    // temporary concatenated buffer to avoid string concatenation
+    const tempBuffer = new Uint8Array(firstPart.length + secondPart.length);
+    tempBuffer.set(firstPart);
+    tempBuffer.set(secondPart, firstPart.length);
+    return sharedTextDecoder.decode(tempBuffer);
+  }
+
+  private compactBuffer() {
+    if (this.readPos === 0) return;
+
+    const moveLen = this.occupied;
+    if (moveLen === 0) {
+      this.readPos = 0;
+      this.writePos = 0;
+      return;
+    }
+
+    // Use built-in method for efficient memory copying
+    this.buffer.copyWithin(0, this.readPos, this.readPos + moveLen);
+    this.readPos = 0;
+    this.writePos = moveLen;
+  }
+
+  private ensureCapacity(additionalBytes: number): boolean {
+    if (this.occupied + additionalBytes <= this.maxBufferSize) {
+      return true;
+    }
+
+    this.compactBuffer();
+    return this.occupied + additionalBytes <= this.maxBufferSize;
+  }
+
+  private reset() {
+    this.readPos = 0;
+    this.writePos = 0;
+    this.occupied = 0;
   }
 }

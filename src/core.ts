@@ -1,61 +1,22 @@
-// src/core.ts
-import { HTTPError } from "./errors";
+import addStreamingCapability from "./stream";
 import { StrettoOptions, StrettoStreamableResponse } from "./types";
-import { calculateBackoff, createTimeoutController, shouldRetry, sleep } from './utilities';
+import {
+  ABORT_ERROR_NAME,
+  calculateBackoff,
+  createTimeoutController,
+  shouldRetry,
+  sleep,
+} from "./utilities";
 
+// --- Constants ---
 const DEFAULT_RETRIES = 3;
-const DEFAULT_TIMEOUT = 30000;
+const DEFAULT_TIMEOUT = 30000; // 30 seconds
+const ERROR_MSG_REQUEST_ABORTED = "Request aborted by user";
 
-const addStreamingCapability = <T>(response: Response, stream: boolean, transformers: TransformStream<any, any>[] = [], userSignal?: AbortSignal): StrettoStreamableResponse<T> => {
-  if (!stream) return response as StrettoStreamableResponse<T>;
-
-  let iteratorUsed = false;
-
-  const proxyHandler: ProxyHandler<Response> = {
-    get(target, prop, receiver) {
-      if (prop === Symbol.asyncIterator) {
-        return async function* () {
-          if (iteratorUsed) throw new Error("Body has already been consumed.");
-          const body = target.body;
-          if (!body) return;
-          iteratorUsed = true;
-
-          let streamPipe: ReadableStream = body;
-          for (const transformer of transformers) {
-            streamPipe = streamPipe.pipeThrough(transformer);
-          }
-          const reader = streamPipe.getReader();
-
-          // Ensure the user's signal can cancel the reader
-          const onAbort = () => reader.cancel(userSignal?.reason);
-          userSignal?.addEventListener("abort", onAbort);
-
-          try {
-            while (true) {
-              // Check if the signal was aborted before reading
-              if (userSignal?.aborted) {
-                throw userSignal.reason ??
-                new DOMException("Request aborted by user", "AbortError");
-              }
-              const { done, value } = await reader.read();
-              if (done) break;
-              yield value;
-            }
-          } finally {
-            userSignal?.removeEventListener("abort", onAbort);
-            reader.releaseLock();
-          }
-        };
-      }
-      const value = Reflect.get(target, prop, receiver);
-      return typeof value === "function" ? value.bind(target) : value;
-    },
-  };
-
-  return new Proxy(response, proxyHandler) as StrettoStreamableResponse<T>;
-};
-
-export default async function stretto<T = unknown>(url: string | URL, options: StrettoOptions<T> = {},): Promise<StrettoStreamableResponse<T>> {
+export default async function stretto<T = unknown>(
+  url: string | URL,
+  options: StrettoOptions<T> = {},
+): Promise<StrettoStreamableResponse<T>> {
   const {
     retries = DEFAULT_RETRIES,
     timeout = DEFAULT_TIMEOUT,
@@ -63,44 +24,58 @@ export default async function stretto<T = unknown>(url: string | URL, options: S
     retryOn = shouldRetry,
     stream = false,
     transformers = [],
-    signal: userSignal,
     ...fetchOptions
   } = options;
 
-  let lastError: Error = new Error(`Request failed after ${retries + 1} attempts`,);
+  const userSignal = fetchOptions.signal;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     if (userSignal?.aborted) {
       throw userSignal.reason ??
-      new DOMException("Request aborted by user", "AbortError");
+        new DOMException(ERROR_MSG_REQUEST_ABORTED, ABORT_ERROR_NAME);
     }
 
     const { signal, cleanup } = createTimeoutController(timeout, userSignal);
+    fetchOptions.signal = signal;
 
     try {
-      const response = await fetch(url, { ...fetchOptions, signal });
-      if (!response.ok) throw new HTTPError(`HTTP ${response.status}: ${response.statusText}`, response,);
-
-      // Success: clean up and return the streamable response
-      cleanup();
-      return addStreamingCapability(response, stream, transformers, userSignal);
-    } catch (error) {
-      // This block now catches both network errors and HTTP errors thrown above
-      lastError = error as Error;
-      const response = error instanceof HTTPError ? error.response : undefined;
-
-      // Immediately throw if the user aborted or if the error is not retryable
-      if (!retryOn(error, response) || attempt === retries) {
-        cleanup();
-        throw lastError;
+      if (attempt > 0) {
+        await sleep(backoffStrategy(attempt));
       }
-    }
 
-    // If we are here, it means a retry is happening.
-    // Cleanup the current attempt's controller before sleeping.
-    cleanup();
-    await sleep(backoffStrategy(attempt));
+      const response = await fetch(url, fetchOptions as RequestInit);
+
+      if (!response.ok) {
+        await response.body?.cancel();
+        // PERF: Avoid throwing an error if we are going to retry.
+        if (attempt < retries && retryOn(undefined, response)) {
+          continue; // Continue to the next attempt.
+        }
+        // This is the final attempt or a non-retryable error, so we throw.
+        throw new Error(
+          `HTTP Error: ${response.status} ${response.statusText}`,
+        );
+      }
+
+      // Success Path: The function will return from here. The 'finally' block ensures cleanup.
+      if (stream) {
+        return addStreamingCapability(response, transformers, userSignal);
+      }
+      return response as StrettoStreamableResponse<T>;
+    } catch (error) {
+      // PERF: Avoid re-assigning the error object. Throw it directly.
+      if (attempt < retries && retryOn(error, undefined)) {
+        continue; // Continue to the next attempt.
+      }
+      // This is the final attempt or a non-retryable error, so we re-throw.
+      throw error;
+    } finally {
+      // on success (return), failure (throw), or retry (continue).
+      cleanup();
+    }
   }
 
-  throw lastError; // Should be unreachable but acts as a fallback
+  // This code is theoretically unreachable if retries >= 0, but it satisfies
+  // TypeScript's control flow analysis.
+  throw new Error("Stretto retry loop exited unexpectedly.");
 }

@@ -1,20 +1,28 @@
 // src/types.ts
 export interface StrettoOptions<T> extends RequestInit {
-  /** Number of retry attempts. Defaults to 3. */
+  /** * Number of retry attempts.
+   * @default 3
+   */
   retries?: number;
-  /** Timeout in milliseconds for each attempt. Defaults to 5000. */
+  /** * Timeout in milliseconds for each attempt.
+   * @default 30000
+   */
   timeout?: number;
-  /** A function to calculate the delay between retries. */
+  /** * A function to calculate the delay between retries.
+   */
   backoffStrategy?: (attempt: number) => number;
-  /** A function to determine if a failed request should be retried. */
+  /** * A function to determine if a failed request should be retried.
+   */
   retryOn?: (error: unknown, response?: Response) => boolean;
-  /** Set to true to process the response as a stream. Defaults to false. */
+  /** * Set to true to process the response as a stream.
+   * @default false
+   */
   stream?: boolean;
   /**
-   * A custom TransformStream to parse the response body.
-   * If `null`, provides a raw `Uint8Array` stream.
+   * An array of TransformStream instances to pipe the response body through.
+   * Defaults to an empty array for a raw `Uint8Array` stream.
    */
-  transformers?: TransformStream<Uint8Array, T>[] | null;  
+  transformers?: TransformStream<Uint8Array, T>[];
 }
 
 /**

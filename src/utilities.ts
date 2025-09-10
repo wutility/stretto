@@ -1,54 +1,100 @@
+// --- Constants ---
+const INITIAL_BACKOFF_MS = 100;
+const MAX_BACKOFF_MS = 5000;
+
+export const ABORT_ERROR_NAME = "AbortError";
+export const TIMEOUT_ERROR_NAME = "TimeoutError";
+const TIMEOUT_ERROR_MSG = "Connection timeout";
+
+// PERF: Precomputed Set for O(1) status code lookups during retry checks.
+const RETRY_STATUS_CODES = new Set([
+  408, // Request Timeout
+  429, // Too Many Requests
+  500, // Internal Server Error
+  502, // Bad Gateway
+  503, // Service Unavailable
+  504, // Gateway Timeout
+]);
+
+/** A simple promise-based sleep function. */
 export const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-const INITIAL_BACKOFF_MS = 100;
-const MAX_BACKOFF_MS = 5000;
-const EXPONENTIAL_BASE = 2;
-
+/**
+ * Calculates exponential backoff with full jitter.
+ * This strategy prevents the "thundering herd" problem under high contention.
+ * @param attempt The current retry attempt number (1-based).
+ */
 export const calculateBackoff = (attempt: number): number => {
-  const exponentialDelay = INITIAL_BACKOFF_MS * (EXPONENTIAL_BASE ** attempt);
-  const cappedDelay = Math.min(MAX_BACKOFF_MS, exponentialDelay);
-  return Math.random() * cappedDelay; // Add jitter
+  // PERF: Use bitwise shift for fast power-of-2 calculation.
+  const exponentialDelay = INITIAL_BACKOFF_MS << (attempt - 1);
+  // Full jitter is a random value between 0 and the exponential delay.
+  const jitter = exponentialDelay * Math.random();
+  return Math.min(MAX_BACKOFF_MS, jitter);
 };
 
+/**
+ * Default logic to determine if a request should be retried.
+ */
 export const shouldRetry = (error: unknown, response?: Response): boolean => {
-  if (response) {
-    const status = response.status;
-    if (status >= 500 && status < 600 || [408, 429, 409].includes(status)) return true;
+  console.warn(error);
+  // PERF: Short-circuit on user aborts, the most common non-retryable error.
+  if (error instanceof DOMException && error.name === ABORT_ERROR_NAME) {
+    return false;
   }
-  if (error instanceof Error) {
-    // Do not retry on explicit user aborts
-    if (error instanceof DOMException && error.name === "AbortError") {
-      return false;
-    }
-    // For other errors, assume they are potentially transient network issues
+  if (response && RETRY_STATUS_CODES.has(response.status)) {
     return true;
   }
-  return false;
+  // Retry on generic network errors, but not other DOMExceptions.
+  return !(error instanceof DOMException);
 };
 
-export const createTimeoutController = (timeoutMs: number, userSignal?: AbortSignal): { signal: AbortSignal; cleanup: () => void; } => {
+/**
+ * Creates a linked AbortSignal that aborts on a timeout or when a user-provided signal aborts.
+ * PERF: This function is meticulously optimized to create the absolute minimum number of closures.
+ * The `cleanup` function is the single source of truth for removing the event listener,
+ * simplifying logic and preventing memory leaks in all code paths.
+ */
+export const createTimeoutController = (
+  timeoutMs: number,
+  userSignal?: AbortSignal,
+): {
+  signal: AbortSignal;
+  timeoutId?: ReturnType<typeof setTimeout>;
+  cleanup: () => void;
+} => {
   const controller = new AbortController();
-  let timeoutId: any;
 
-  const onUserAbort = () => controller.abort(userSignal?.reason);
-  
   if (userSignal?.aborted) {
-    onUserAbort();
+    controller.abort(userSignal.reason);
+    return { signal: controller.signal, cleanup: () => { } };
   }
 
-  if (timeoutMs > 0) {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  // PERF: Define the listener once. It will be wrapped in the final cleanup closure.
+  const onUserAbort = () => {
+    if (timeoutId) clearTimeout(timeoutId);
+    controller.abort(userSignal?.reason);
+  };
+
+  if (timeoutMs > 0 && timeoutMs !== Infinity) {
     timeoutId = setTimeout(() => {
-      controller.abort(new DOMException("Connection timeout", "TimeoutError"));
+      // The timeout's only job is to abort. Cleanup is handled by the caller's `finally` block.
+      controller.abort(new DOMException(TIMEOUT_ERROR_MSG, TIMEOUT_ERROR_NAME));
     }, timeoutMs);
   }
 
-  userSignal?.addEventListener("abort", onUserAbort);
+  if (userSignal) {
+    userSignal.addEventListener("abort", onUserAbort, { once: true });
+  }
 
+  // The cleanup function is the single source of truth for removing the listener and clearing the timeout.
+  // This is the only new closure created and returned by this function.
   const cleanup = () => {
     if (timeoutId) clearTimeout(timeoutId);
     userSignal?.removeEventListener("abort", onUserAbort);
   };
 
-  return { signal: controller.signal, cleanup };
+  return { signal: controller.signal, timeoutId, cleanup };
 };
