@@ -24,10 +24,7 @@ const ERROR_MSG_REQUEST_ABORTED = "Request aborted by user";
  * @param {StrettoOptions<T>} [options] The options object for configuring the fetch request.
  * @returns {Promise<StrettoStreamableResponse<T>>} A promise that resolves to a StrettoStreamableResponse.
  */
-export default async function stretto<T = unknown>(
-  url: string | URL,
-  options: StrettoOptions<T> = {},
-): Promise<StrettoStreamableResponse<T>> {
+export default async function stretto<T = unknown>(url: string | URL, options: StrettoOptions = {},): Promise<StrettoStreamableResponse<T>> {
   const {
     retries = DEFAULT_RETRIES,
     timeout = DEFAULT_TIMEOUT,
@@ -44,7 +41,7 @@ export default async function stretto<T = unknown>(
     // Check for user-initiated abort before each attempt and throw.
     if (userSignal?.aborted) {
       throw userSignal.reason ??
-        new DOMException(ERROR_MSG_REQUEST_ABORTED, ABORT_ERROR_NAME);
+      new DOMException(ERROR_MSG_REQUEST_ABORTED, ABORT_ERROR_NAME);
     }
 
     const { signal, cleanup } = createTimeoutController(timeout, userSignal);

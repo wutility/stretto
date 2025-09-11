@@ -147,7 +147,7 @@ export class JSONStreamTransformer extends TransformStream<Uint8Array, any> {
         }
       },
 
-      flush: (controller) => {
+      flush: () => {
         // Defensive cleanup: Zero out any remaining bytes in the buffer when the
         // stream is closed, preventing any potential for data exposure.
         if (bufferPos > 0) {

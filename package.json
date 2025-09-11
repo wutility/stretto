@@ -1,7 +1,7 @@
 {
   "name": "stretto",
-  "version": "1.0.21",
-  "description": "Stretto is a high-performance TypeScript library for streaming HTTP requests with support for  Server-Sent Events.",
+  "version": "1.0.22",
+  "description": "Lightweight HTTP client for JSON streaming and non-streaming requests. Supports SSE, retries, timeouts, cancellation, and custom transformations.",
   "private": false,
   "type": "module",
   "main": "./dist/index.js",
@@ -37,7 +37,9 @@
     "streaming",
     "sse",
     "HTTP request",
-    "Server-Sent Events"
+    "Server-Sent Events",
+    "json streaming",
+    "Lightweight HTTP"
   ],
   "repository": {
     "type": "git",

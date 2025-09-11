@@ -61,14 +61,7 @@ export const shouldRetry = (error: unknown, response?: Response): boolean => {
  * The `cleanup` function is the single source of truth for removing the event listener,
  * simplifying logic and preventing memory leaks in all code paths.
  */
-export const createTimeoutController = (
-  timeoutMs: number,
-  userSignal?: AbortSignal,
-): {
-  signal: AbortSignal;
-  timeoutId?: ReturnType<typeof setTimeout>;
-  cleanup: () => void;
-} => {
+export const createTimeoutController = (timeoutMs: number, userSignal?: AbortSignal,): { signal: AbortSignal; timeoutId?: ReturnType<typeof setTimeout>; cleanup: () => void; } => {
   const controller = new AbortController();
 
   if (userSignal?.aborted) {

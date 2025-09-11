@@ -6,11 +6,7 @@
  * @param expectedBytes The byte sequence to match.
  * @returns True if the bytes match, false otherwise.
  */
-export function isMatchingBytes(
-  buffer: Uint8Array,
-  start: number,
-  expectedBytes: Uint8Array | readonly number[],
-): boolean {
+export function isMatchingBytes(buffer: Uint8Array, start: number, expectedBytes: Uint8Array | readonly number[],): boolean {
   if (start + expectedBytes.length > buffer.length) {
     return false;
   }

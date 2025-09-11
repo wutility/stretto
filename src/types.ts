@@ -13,7 +13,7 @@ export class HTTPError extends Error {
 export type StrettoStreamableResponse<T> = Response & AsyncIterable<T>;
 
 /** Configuration options for a Stretto request. */
-export interface StrettoOptions<T> extends Omit<RequestInit, "signal"> {
+export interface StrettoOptions extends Omit<RequestInit, "signal"> {
   /** The maximum number of retry attempts. Defaults to 3. */
   retries?: number;
   /** The timeout in milliseconds for the entire request, including retries. Defaults to 30000. */

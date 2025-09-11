@@ -13,11 +13,7 @@ const ASYNC_ITERATOR = Symbol.asyncIterator;
  * @param {AbortSignal} [userSignal] An optional user-provided AbortSignal to allow for external cancellation.
  * @returns {StrettoStreamableResponse<T>} A Proxy of the Response that is also an AsyncIterable.
  */
-export default function createStreamableResponse<T>(
-  response: Response,
-  transformers: TransformStream<any, any>[],
-  userSignal?: AbortSignal,
-): StrettoStreamableResponse<T> {
+export default function createStreamableResponse<T>(response: Response, transformers: TransformStream<any, any>[], userSignal?: AbortSignal,): StrettoStreamableResponse<T> {
   if (!response.body) {
     return response as StrettoStreamableResponse<T>;
   }
@@ -48,7 +44,7 @@ export default function createStreamableResponse<T>(
           const onAbort = () => {
             // The .catch() is important because cancel() can throw if the stream
             // is already closed, which we don't want to be an unhandled rejection.
-            reader.cancel(userSignal?.reason).catch(() => {});
+            reader.cancel(userSignal?.reason).catch(() => { });
           };
           userSignal?.addEventListener("abort", onAbort, { once: true });
 
