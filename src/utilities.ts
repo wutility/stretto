@@ -1,4 +1,3 @@
-// --- Constants ---
 const INITIAL_BACKOFF_MS = 100;
 const MAX_BACKOFF_MS = 5000;
 
@@ -37,16 +36,23 @@ export const calculateBackoff = (attempt: number): number => {
  * Default logic to determine if a request should be retried.
  */
 export const shouldRetry = (error: unknown, response?: Response): boolean => {
-  console.warn(error);
-  // PERF: Short-circuit on user aborts, the most common non-retryable error.
+  // Never retry on user-initiated aborts.
   if (error instanceof DOMException && error.name === ABORT_ERROR_NAME) {
     return false;
   }
+
+  // Retry on specific server status codes.
   if (response && RETRY_STATUS_CODES.has(response.status)) {
     return true;
   }
-  // Retry on generic network errors, but not other DOMExceptions.
-  return !(error instanceof DOMException);
+
+  // Retry on specific transient network errors.
+  if (error instanceof TypeError && error.message === "Failed to fetch") {
+    return true;
+  }
+
+  // Explicitly do not retry on any other errors (e.g., programming errors).
+  return false;
 };
 
 /**

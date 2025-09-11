@@ -1,8 +1,8 @@
 // src/index.ts
 export { default } from "./core";
 
-export { JSONStreamTransformer } from './transformers/JSONStreamTransformer'
-export { SSEStreamTransformer } from './transformers/SSEStreamTransformer'
+export { JSONStreamTransformer } from './transformer/index'
+export type { JSONStreamOptions } from './transformer/types'
 
 export type {
   StrettoOptions,

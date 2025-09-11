@@ -1,5 +1,9 @@
-import addStreamingCapability from "./stream";
-import { StrettoOptions, StrettoStreamableResponse } from "./types";
+import createStreamableResponse from "./stream";
+import {
+  HTTPError,
+  StrettoOptions,
+  StrettoStreamableResponse,
+} from "./types";
 import {
   ABORT_ERROR_NAME,
   calculateBackoff,
@@ -8,11 +12,18 @@ import {
   sleep,
 } from "./utilities";
 
-// --- Constants ---
 const DEFAULT_RETRIES = 3;
 const DEFAULT_TIMEOUT = 30000; // 30 seconds
 const ERROR_MSG_REQUEST_ABORTED = "Request aborted by user";
 
+/**
+ * A robust fetch wrapper with built-in retry, backoff, and streaming capabilities.
+ *
+ * @template T The expected type of the response data.
+ * @param {string | URL} url The URL to fetch.
+ * @param {StrettoOptions<T>} [options] The options object for configuring the fetch request.
+ * @returns {Promise<StrettoStreamableResponse<T>>} A promise that resolves to a StrettoStreamableResponse.
+ */
 export default async function stretto<T = unknown>(
   url: string | URL,
   options: StrettoOptions<T> = {},
@@ -30,6 +41,7 @@ export default async function stretto<T = unknown>(
   const userSignal = fetchOptions.signal;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
+    // Check for user-initiated abort before each attempt and throw.
     if (userSignal?.aborted) {
       throw userSignal.reason ??
         new DOMException(ERROR_MSG_REQUEST_ABORTED, ABORT_ERROR_NAME);
@@ -45,37 +57,33 @@ export default async function stretto<T = unknown>(
 
       const response = await fetch(url, fetchOptions as RequestInit);
 
-      if (!response.ok) {
+      if (response.ok) {
+        if (stream) {
+          return createStreamableResponse(response, transformers, userSignal);
+        }
+        return response as StrettoStreamableResponse<T>;
+      } else {
+        // If the response is not ok, cancel the body to free resources.
         await response.body?.cancel();
-        // PERF: Avoid throwing an error if we are going to retry.
+
         if (attempt < retries && retryOn(undefined, response)) {
           continue; // Continue to the next attempt.
         }
-        // This is the final attempt or a non-retryable error, so we throw.
-        throw new Error(
-          `HTTP Error: ${response.status} ${response.statusText}`,
-        );
+        // This is the final attempt or a non-retryable error, so we throw a typed error.
+        throw new HTTPError(response);
       }
-
-      // Success Path: The function will return from here. The 'finally' block ensures cleanup.
-      if (stream) {
-        return addStreamingCapability(response, transformers, userSignal);
-      }
-      return response as StrettoStreamableResponse<T>;
     } catch (error) {
-      // PERF: Avoid re-assigning the error object. Throw it directly.
       if (attempt < retries && retryOn(error, undefined)) {
         continue; // Continue to the next attempt.
       }
-      // This is the final attempt or a non-retryable error, so we re-throw.
+      // This is the final attempt, a non-retryable error, or an abort, so we re-throw.
       throw error;
     } finally {
-      // on success (return), failure (throw), or retry (continue).
+      // Cleanup will run on success (return), failure (throw), or retry (continue).
       cleanup();
     }
   }
 
-  // This code is theoretically unreachable if retries >= 0, but it satisfies
-  // TypeScript's control flow analysis.
+  // This is a safety net and should be unreachable if retries >= 0.
   throw new Error("Stretto retry loop exited unexpectedly.");
 }
