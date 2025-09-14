@@ -1,7 +1,7 @@
 {
   "name": "stretto",
-  "version": "1.0.22",
-  "description": "Lightweight HTTP client for JSON streaming and non-streaming requests. Supports SSE, retries, timeouts, cancellation, and custom transformations.",
+  "version": "1.0.23",
+  "description": "The lightweight and The Ultimate high-performance HTTP library for WEB.",
   "private": false,
   "type": "module",
   "main": "./dist/index.js",
@@ -49,6 +49,5 @@
     "url": "https://github.com/wutility/stretto.git/issues"
   },
   "homepage": "https://github.com/wutility/stretto.git#readme",
-  "author": "Haikel Fazzani",
   "license": "MIT"
 }
