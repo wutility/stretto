@@ -14,7 +14,8 @@
     "dev": "vite build --minify false && npm run cp",
     "clean": "rm -rf dist",
     "test": "jest tests/index.test.ts",
-    "prepublishOnly": "npm run clean && npm run build && npm run test"
+    "prepublishOnly": "npm run clean && npm run build && npm run test",
+    "jsr:publish": "npx jsr publish --allow-dirty"
   },
   "devDependencies": {
     "@jest/globals": "^30.1.2",
