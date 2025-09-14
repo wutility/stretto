@@ -48,11 +48,8 @@ export class JSONStreamTransformer extends TransformStream<Uint8Array, any> {
               // FAIL FAST: Securely clear the buffer, then throw a detailed error.
               buffer.fill(0, 0, bufferPos); // Faster than a loop
               throw new RangeError(
-                `Buffer overflow: An SSE line exceeds the configured maxBuffer of ${maxBuffer} bytes. ` +
-                `The oversized line starts at offset ${chunkPos} in the current data chunk and would have resulted in a total line length of at least ${bufferPos + copyLen
-                } bytes. ` +
-                `To process larger lines, increase the 'maxBuffer' option. This error can also indicate a protocol violation or malicious input.`,
-              );
+                `JSONStreamTransformer Buffer Overflow: Line exceeds ${maxBuffer} byte limit (${bufferPos + copyLen} bytes). ` +
+                `Increase 'maxBuffer' option or validate input stream.`);
             }
 
             // 'skip' mode: Reset buffer and skip to the start of the next line.

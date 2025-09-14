@@ -19,15 +19,18 @@ A robust, high-performance TypeScript fetch wrapper with built-in retry logic, e
 
 ## 📦 Installation
 
-```bash
+```shell
+# npm
 npm install stretto
+# Deno
+deno add jsr:@wutility/stretto
 ```
 
 Or use the CDN:
 
 ```html
 <script src="https://cdn.jsdelivr.net/npm/stretto/dist/index.umd.min.js"></script>
-<!-- window.stretto is available -->
+<!-- window.stretto.default is available -->
 ```
 
 ## 🚀 Quick Start
@@ -36,6 +39,8 @@ Or use the CDN:
 
 ```typescript
 import stretto from 'stretto';
+// jsr
+// import stretto, { JSONStreamTransformer } from "jsr:@wutility/stretto";
 
 // Simple GET request
 const response = await stretto('https://jsonplaceholder.typicode.com/todos/1');
@@ -55,7 +60,7 @@ const response = await stretto('https://api.example.com/data', {
 ### Streaming Responses
 
 ```typescript
-const response = await stretto('https://sse.dev/test', {
+const response = await stretto('https://stream.wikimedia.org/v2/stream/recentchange', {
   stream: true
 });
 

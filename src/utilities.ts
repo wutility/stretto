@@ -16,8 +16,27 @@ const RETRY_STATUS_CODES = new Set([
 ]);
 
 /** A simple promise-based sleep function. */
-export const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
+export const sleep = (ms: number, signal?: AbortSignal): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    // If already aborted, reject immediately
+    if (signal?.aborted) {
+      reject(signal.reason ?? new DOMException('Sleep aborted', 'AbortError'));
+      return;
+    }
+
+    const timeoutId = setTimeout(resolve, ms);
+
+    // If signal is provided, set up abort listener
+    if (signal) {
+      const abortHandler = () => {
+        clearTimeout(timeoutId);
+        reject(signal.reason ?? new DOMException('Sleep aborted', 'AbortError'));
+      };
+
+      signal.addEventListener('abort', abortHandler, { once: true });
+    }
+  });
+};
 
 /**
  * Calculates exponential backoff with full jitter.
