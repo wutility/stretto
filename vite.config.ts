@@ -22,7 +22,7 @@ export default defineConfig({
   ],
   build: {
     lib: {
-      entry: path.resolve(__dirname, 'src/index.ts'),
+      entry: path.resolve(__dirname, 'mod.ts'),
       name: 'stretto',
       fileName: (format) => format === 'es' ? 'index.js' : `index.${format}.js`,
       formats: ['es', 'umd'],

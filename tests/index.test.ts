@@ -1,4 +1,4 @@
-import stretto from '../src/index';
+import stretto from '../mod';
 
 describe('stretto - non-stream: network errors', () => {
   it('should throw on network error (e.g., DNS failure)', async () => {

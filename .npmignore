@@ -15,6 +15,7 @@ test.ts
 
 yarn.lock
 package-lock.json
+jsr.json
 
 .gitignore
 .cache
