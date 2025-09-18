@@ -1,5 +1,5 @@
 (function(i,d){typeof exports=="object"&&typeof module<"u"?d(exports):typeof define=="function"&&define.amd?define(["exports"],d):(i=typeof globalThis<"u"?globalThis:i||self,d(i.stretto={}))})(this,(function(i){"use strict";var q=Object.defineProperty;var K=(i,d,h)=>d in i?q(i,d,{enumerable:!0,configurable:!0,writable:!0,value:h}):i[d]=h;var _=(i,d,h)=>K(i,typeof d!="symbol"?d+"":d,h);/*!
- * stretto v1.0.25
+ * stretto v1.0.26
  * (c) 2025
  * Contributors: @haikelfazzani
  * Released under the MIT License

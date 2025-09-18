@@ -3,17 +3,21 @@
     "target": "es2022",
     "lib": ["DOM", "DOM.Iterable", "ESNext"],
     "module": "ESNext",
-    "declaration": true,
-    "declarationDir": "./dist",
-    "outDir": "./dist",
     "strict": false,
     "moduleResolution": "node",
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "removeComments": true
+    "removeComments": false,
+    "sourceMap": true,
+
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "declarationMap": false,
+    "outDir": "dist/types"
   },
   "include": [
-    "src/**/*"
+    "src/**/*",
+    "mod.ts"
   ]
 }

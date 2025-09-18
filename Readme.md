@@ -73,7 +73,7 @@ for await (const chunk of response) {
 ### Server-Sent Events (SSE)
 
 ```typescript
-import stretto, { JSONStreamTransformer } from 'stretto/transformers';
+import stretto, { JSONStreamTransformer } from 'stretto';
 
 const response = await stretto('https://sse.dev/test', {
   stream: true,
@@ -116,7 +116,7 @@ interface StrettoOptions extends Omit<RequestInit, 'signal'> {
 A specialized transformer for parsing Server-Sent Events with JSON payloads.
 
 ```typescript
-import { JSONStreamTransformer } from 'stretto/transformers';
+import { JSONStreamTransformer } from 'stretto';
 
 const transformer = new JSONStreamTransformer({
   maxBuffer: 8192,        // Maximum line buffer size
@@ -169,7 +169,7 @@ try {
 ### Multiple Transform Streams
 
 ```typescript
-import stretto, { JSONStreamTransformer } from 'stretto/transformers';
+import stretto, { JSONStreamTransformer } from 'stretto';
 
 const response = await stretto('https://sse.dev/test', {
   stream: true,

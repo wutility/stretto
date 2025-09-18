@@ -1,6 +1,6 @@
 {
   "name": "stretto",
-  "version": "1.0.25",
+  "version": "1.0.26",
   "description": "The lightweight and The Ultimate high-performance HTTP library for WEB.",
   "private": false,
   "type": "module",

@@ -18,9 +18,15 @@
     "noUnusedParameters": true,
     "allowSyntheticDefaultImports": true,
     "allowImportingTsExtensions": true,
-    "removeComments": true
+    "removeComments": false,
+
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "declarationMap": true,
+    "outDir": "dist/types"
   },
   "include": [
-    "src/**/*"
+    "src/**/*",
+    "mod.ts"
   ]
 }

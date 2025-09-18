@@ -1,6 +1,6 @@
 {
   "name": "@wutility/stretto",
-  "version": "1.0.25",
+  "version": "1.0.26",
   "license": "MIT",
   "exports": "./mod.ts",
   "publish": {
